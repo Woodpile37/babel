@@ -1,15 +1,17 @@
 {
   "version": 3,
-  "mappings": "AAAC,KCAD;ACAA,K",
   "names": [],
   "sources": [
-    "bar.js",
     "input.tsx",
+    "source-maps/input-source-map-multiple-output-sources-complete-replace/input.js",
+    "bar.js",
     "baz.js"
   ],
   "sourcesContent": [
-    "<bar />",
     "foo(1);\nfunction foo(bar: number): never {\n    throw new Error('Intentional.');\n}",
+    "foo(1);\nfunction foo(bar) {\n    throw new Error('Intentional.');\n}\n//# sourceMappingURL=input.js.map",
+    "<bar />",
     "baz();"
-  ]
+  ],
+  "mappings": "AAAA,KAAI;AAAJ,KAAG"
 }

@@ -1,5 +1,6 @@
 import type Printer from "../printer";
 import type * as t from "@babel/types";
+import type { NodePath } from "@babel/traverse";
 
 export function TSTypeAnnotation(this: Printer, node: t.TSTypeAnnotation) {
   this.token(":");
@@ -73,12 +74,16 @@ export function TSParameterProperty(
   this._param(node.parameter);
 }
 
-export function TSDeclareFunction(this: Printer, node: t.TSDeclareFunction) {
+export function TSDeclareFunction(
+  this: Printer,
+  node: t.TSDeclareFunction,
+  parent: NodePath<t.TSDeclareFunction>["parent"],
+) {
   if (node.declare) {
     this.word("declare");
     this.space();
   }
-  this._functionHead(node);
+  this._functionHead(node, parent);
   this.token(";");
 }
 
@@ -259,8 +264,8 @@ export function tsPrintFunctionOrConstructorType(
 }
 
 export function TSTypeReference(this: Printer, node: t.TSTypeReference) {
-  this.print(node.typeName, node);
-  this.print(node.typeParameters, node);
+  this.print(node.typeName, node, true);
+  this.print(node.typeParameters, node, true);
 }
 
 export function TSTypePredicate(this: Printer, node: t.TSTypePredicate) {
@@ -310,14 +315,14 @@ function tsPrintBraced(printer: Printer, members: t.Node[], node: t.Node) {
       printer.newline();
     }
     printer.dedent();
-    printer.rightBrace();
-  } else {
-    printer.token("}");
   }
+
+  printer.rightBrace(node);
 }
 
 export function TSArrayType(this: Printer, node: t.TSArrayType) {
-  this.print(node.elementType, node);
+  this.print(node.elementType, node, true);
+
   this.token("[]");
 }
 
@@ -408,7 +413,7 @@ export function TSIndexedAccessType(
   this: Printer,
   node: t.TSIndexedAccessType,
 ) {
-  this.print(node.objectType, node);
+  this.print(node.objectType, node, true);
   this.token("[");
   this.print(node.indexType, node);
   this.token("]");
@@ -520,14 +525,23 @@ export function TSTypeAliasDeclaration(
   this.token(";");
 }
 
-export function TSAsExpression(this: Printer, node: t.TSAsExpression) {
-  const { expression, typeAnnotation } = node;
-  this.print(expression, node);
+function TSTypeExpression(
+  this: Printer,
+  node: t.TSAsExpression | t.TSSatisfiesExpression,
+) {
+  const { type, expression, typeAnnotation } = node;
+  const forceParens = !!expression.trailingComments?.length;
+  this.print(expression, node, true, undefined, forceParens);
   this.space();
-  this.word("as");
+  this.word(type === "TSAsExpression" ? "as" : "satisfies");
   this.space();
   this.print(typeAnnotation, node);
 }
+
+export {
+  TSTypeExpression as TSAsExpression,
+  TSTypeExpression as TSSatisfiesExpression,
+};
 
 export function TSTypeAssertion(this: Printer, node: t.TSTypeAssertion) {
   const { typeAnnotation, expression } = node;

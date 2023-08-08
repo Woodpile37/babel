@@ -15,7 +15,7 @@ source utils/cleanup.sh
 set -x
 
 # Clone jest
-git clone --depth=1 https://github.com/facebook/jest /tmp/jest
+git clone --depth=1 https://github.com/jestjs/jest /tmp/jest
 cd /tmp/jest || exit
 
 # Update @babel/* dependencies
@@ -48,7 +48,13 @@ if [ "$BABEL_8_BREAKING" = true ] ; then
 
   # Jest depends on @types/babel__traverse for Babel 7, and they contain the removed Noop node
   sed -i 's/t.Noop/any/g' node_modules/@types/babel__traverse/index.d.ts
-  sed -i 's/t.Noop/any/g' node_modules/@types/babel__traverse/ts4.1/index.d.ts
+
+  # Replace isTSX with the JSX plugin
+  sed -i "s/isTSX: sourceFilePath.endsWith('x')//g" packages/jest-snapshot/src/InlineSnapshots.ts
+  sed -i "s%'TypeScript syntax plugin added by Jest snapshot',%'TypeScript syntax plugin added by Jest snapshot'],[require.resolve('@babel/plugin-syntax-jsx')%g" packages/jest-snapshot/src/InlineSnapshots.ts
+
+  # Delete once https://github.com/jestjs/jest/pull/14109 is merged
+  sed -i "s/blacklist/denylist/g" packages/babel-plugin-jest-hoist/src/index.ts
 
   node -e "
     var pkg = require('./package.json');
@@ -61,6 +67,12 @@ fi
 sed -i 's/"skipLibCheck": false,/"skipLibCheck": true,/g' tsconfig.json # Speedup
 
 yarn build
+
+# Temporarily ignore this test that is failing due to source maps changes in
+# Babel 7.21.0.
+# Re-enable it once Jest updates their snapshots to the latest Babel version.
+rm -f packages/jest-transform/src/__tests__/ScriptTransformer.test.ts
+rm -f packages/jest-transform/src/__tests__/__snapshots__/ScriptTransformer.test.ts.snap
 
 # The full test suite takes about 20mins on CircleCI. We run only a few of them
 # to speed it up.

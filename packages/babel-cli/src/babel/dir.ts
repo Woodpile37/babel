@@ -49,16 +49,22 @@ export default async function ({
 
       if (!res) return FILE_TYPE.IGNORED;
 
-      // we've requested explicit sourcemaps to be written to disk
-      if (
-        res.map &&
-        babelOptions.sourceMaps &&
-        babelOptions.sourceMaps !== "inline"
-      ) {
-        const mapLoc = dest + ".map";
-        res.code = util.addSourceMappingUrl(res.code, mapLoc);
-        res.map.file = path.basename(relative);
-        outputFileSync(mapLoc, JSON.stringify(res.map));
+      if (res.map) {
+        let outputMap: "both" | "external" | false = false;
+        if (babelOptions.sourceMaps && babelOptions.sourceMaps !== "inline") {
+          outputMap = "external";
+        } else if (babelOptions.sourceMaps == undefined) {
+          outputMap = util.hasDataSourcemap(res.code) ? "external" : "both";
+        }
+
+        if (outputMap) {
+          const mapLoc = dest + ".map";
+          if (outputMap === "external") {
+            res.code = util.addSourceMappingUrl(res.code, mapLoc);
+          }
+          res.map.file = path.basename(relative);
+          outputFileSync(mapLoc, JSON.stringify(res.map));
+        }
       }
 
       outputFileSync(dest, res.code);
@@ -129,7 +135,7 @@ export default async function ({
   }
 
   let compiledFiles = 0;
-  let startTime = null;
+  let startTime: [number, number] | null = null;
 
   const logSuccess = util.debounce(function () {
     if (startTime === null) {
@@ -178,7 +184,7 @@ export default async function ({
     // when we are sure that all the files have been compiled.
     let processing = 0;
     const { filenames } = cliOptions;
-    let getBase;
+    let getBase: (filename: string) => string | null;
     if (filenames.length === 1) {
       // fast path: If there is only one filenames, we know it must be the base
       const base = filenames[0];

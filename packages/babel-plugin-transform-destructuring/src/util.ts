@@ -3,6 +3,14 @@ import type { File } from "@babel/core";
 import type { Scope, NodePath } from "@babel/traverse";
 import type { TraversalAncestors } from "@babel/types";
 
+function isPureVoid(node: t.Node) {
+  return (
+    t.isUnaryExpression(node) &&
+    node.operator === "void" &&
+    t.isPureish(node.argument)
+  );
+}
+
 export function unshiftForXStatementBody(
   statementPath: NodePath<t.ForXStatement>,
   newStatements: t.Statement[],
@@ -140,7 +148,7 @@ export class DestructuringTransformer {
     } else {
       let nodeInit: t.Expression;
 
-      if (this.kind === "const" && init === null) {
+      if ((this.kind === "const" || this.kind === "using") && init === null) {
         nodeInit = this.scope.buildUndefinedNode();
       } else {
         nodeInit = t.cloneNode(init);
@@ -194,10 +202,11 @@ export class DestructuringTransformer {
     { left, right }: t.AssignmentPattern,
     valueRef: t.Expression | null,
   ) {
-    // handle array init hole
-    // const [x = 42] = [,];
+    // handle array init with void 0. This also happens when
+    // the value was originally a hole.
+    // const [x = 42] = [void 0,];
     // -> const x = 42;
-    if (valueRef === null) {
+    if (isPureVoid(valueRef)) {
       this.push(left, right);
       return;
     }
@@ -222,7 +231,11 @@ export class DestructuringTransformer {
       let patternId;
       let node;
 
-      if (this.kind === "const" || this.kind === "let") {
+      if (
+        this.kind === "const" ||
+        this.kind === "let" ||
+        this.kind === "using"
+      ) {
         patternId = this.scope.generateUidIdentifier(tempId.name);
         node = this.buildVariableDeclaration(patternId, tempConditional);
       } else {
@@ -274,15 +287,15 @@ export class DestructuringTransformer {
     }
   }
 
-  pushObjectPattern(pattern: t.ObjectPattern, objRef: t.Expression | null) {
+  pushObjectPattern(pattern: t.ObjectPattern, objRef: t.Expression) {
     // https://github.com/babel/babel/issues/681
 
-    if (!pattern.properties.length || objRef === null) {
+    if (!pattern.properties.length) {
       this.nodes.push(
         t.expressionStatement(
           t.callExpression(
             this.addHelper("objectDestructuringEmpty"),
-            objRef !== null ? [objRef] : [],
+            isPureVoid(objRef) ? [] : [objRef],
           ),
         ),
       );
@@ -327,7 +340,6 @@ export class DestructuringTransformer {
         }
       }
     }
-    //
 
     for (let i = 0; i < pattern.properties.length; i++) {
       const prop = pattern.properties[i];
@@ -392,12 +404,18 @@ export class DestructuringTransformer {
     pattern: t.ArrayPattern,
     arr: UnpackableArrayExpression,
   ) {
+    const holeToUndefined = (el: t.Expression) =>
+      el ?? this.scope.buildUndefinedNode();
+
     for (let i = 0; i < pattern.elements.length; i++) {
       const elem = pattern.elements[i];
       if (t.isRestElement(elem)) {
-        this.push(elem.argument, t.arrayExpression(arr.elements.slice(i)));
+        this.push(
+          elem.argument,
+          t.arrayExpression(arr.elements.slice(i).map(holeToUndefined)),
+        );
       } else {
-        this.push(elem, arr.elements[i]);
+        this.push(elem, holeToUndefined(arr.elements[i]));
       }
     }
   }
@@ -421,7 +439,8 @@ export class DestructuringTransformer {
     // eg: let [a, b] = [1, 2];
 
     if (this.canUnpackArrayPattern(pattern, arrayRef)) {
-      return this.pushUnpackedArrayPattern(pattern, arrayRef);
+      this.pushUnpackedArrayPattern(pattern, arrayRef);
+      return;
     }
 
     // if we have a rest then we need all the elements so don't tell
@@ -444,8 +463,6 @@ export class DestructuringTransformer {
       this.arrayRefSet.add(arrayRef.name);
       this.nodes.push(this.buildVariableDeclaration(arrayRef, toArray));
     }
-
-    //
 
     for (let i = 0; i < pattern.elements.length; i++) {
       const elem = pattern.elements[i];
@@ -483,8 +500,6 @@ export class DestructuringTransformer {
         ref = memo;
       }
     }
-
-    //
 
     this.push(pattern, ref);
 
@@ -536,7 +551,12 @@ export function buildObjectExcludingKeys<T extends ExcludingKey>(
       : addHelper("extends");
     value = t.callExpression(extendsHelper, [
       t.objectExpression([]),
-      t.cloneNode(objRef),
+      t.sequenceExpression([
+        t.callExpression(addHelper("objectDestructuringEmpty"), [
+          t.cloneNode(objRef),
+        ]),
+        t.cloneNode(objRef),
+      ]),
     ]);
   } else {
     let keyExpression: t.Expression = t.arrayExpression(keys);
@@ -621,7 +641,7 @@ export function convertVariableDeclaration(
   }
 
   let tail: t.VariableDeclaration | null = null;
-  const nodesOut = [];
+  let nodesOut = [];
   for (const node of nodes) {
     if (t.isVariableDeclaration(node)) {
       if (tail !== null) {
@@ -641,6 +661,37 @@ export function convertVariableDeclaration(
       node.loc = nodeLoc;
     }
     nodesOut.push(node);
+  }
+
+  if (
+    nodesOut.length === 2 &&
+    t.isVariableDeclaration(nodesOut[0]) &&
+    t.isExpressionStatement(nodesOut[1]) &&
+    t.isCallExpression(nodesOut[1].expression) &&
+    nodesOut[0].declarations.length === 1
+  ) {
+    // This can only happen when we generate this code:
+    //    var _ref = DESTRUCTURED_VALUE;
+    //     babelHelpers.objectDestructuringEmpty(_ref);
+    // Since pushing those two statements to the for loop .init will require an IIFE,
+    // we can optimize them to
+    //     babelHelpers.objectDestructuringEmpty(DESTRUCTURED_VALUE);
+    const expr = nodesOut[1].expression;
+    expr.arguments = [nodesOut[0].declarations[0].init];
+    nodesOut = [expr];
+  } else {
+    // We must keep nodes all are expressions or statements, so `replaceWithMultiple` can work.
+    if (
+      t.isForStatement(path.parent, { init: node }) &&
+      !nodesOut.some(v => t.isVariableDeclaration(v))
+    ) {
+      for (let i = 0; i < nodesOut.length; i++) {
+        const node: t.Node = nodesOut[i];
+        if (t.isExpressionStatement(node)) {
+          nodesOut[i] = node.expression;
+        }
+      }
+    }
   }
 
   if (nodesOut.length === 1) {

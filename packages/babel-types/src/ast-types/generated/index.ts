@@ -253,6 +253,7 @@ export type Node =
   | TSPropertySignature
   | TSQualifiedName
   | TSRestType
+  | TSSatisfiesExpression
   | TSStringKeyword
   | TSSymbolKeyword
   | TSThisType
@@ -687,7 +688,7 @@ export interface UpdateExpression extends BaseNode {
 
 export interface VariableDeclaration extends BaseNode {
   type: "VariableDeclaration";
-  kind: "var" | "let" | "const";
+  kind: "var" | "let" | "const" | "using" | "await using";
   declarations: Array<VariableDeclarator>;
   declare?: boolean | null;
 }
@@ -719,10 +720,12 @@ export interface AssignmentPattern extends BaseNode {
     | ArrayPattern
     | MemberExpression
     | TSAsExpression
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TSNonNullExpression;
   right: Expression;
   decorators?: Array<Decorator> | null;
+  optional?: boolean | null;
   typeAnnotation?: TypeAnnotation | TSTypeAnnotation | Noop | null;
 }
 
@@ -808,12 +811,17 @@ export interface ExportAllDeclaration extends BaseNode {
   type: "ExportAllDeclaration";
   source: StringLiteral;
   assertions?: Array<ImportAttribute> | null;
+  attributes?: Array<ImportAttribute> | null;
   exportKind?: "type" | "value" | null;
 }
 
 export interface ExportDefaultDeclaration extends BaseNode {
   type: "ExportDefaultDeclaration";
-  declaration: FunctionDeclaration | ClassDeclaration | Expression;
+  declaration:
+    | TSDeclareFunction
+    | FunctionDeclaration
+    | ClassDeclaration
+    | Expression;
   exportKind?: "value" | null;
 }
 
@@ -825,6 +833,7 @@ export interface ExportNamedDeclaration extends BaseNode {
   >;
   source?: StringLiteral | null;
   assertions?: Array<ImportAttribute> | null;
+  attributes?: Array<ImportAttribute> | null;
   exportKind?: "type" | "value" | null;
 }
 
@@ -850,7 +859,9 @@ export interface ImportDeclaration extends BaseNode {
   >;
   source: StringLiteral;
   assertions?: Array<ImportAttribute> | null;
+  attributes?: Array<ImportAttribute> | null;
   importKind?: "type" | "typeof" | "value" | null;
+  module?: boolean | null;
 }
 
 export interface ImportDefaultSpecifier extends BaseNode {
@@ -904,6 +915,7 @@ export interface ObjectPattern extends BaseNode {
   type: "ObjectPattern";
   properties: Array<RestElement | ObjectProperty>;
   decorators?: Array<Decorator> | null;
+  optional?: boolean | null;
   typeAnnotation?: TypeAnnotation | TSTypeAnnotation | Noop | null;
 }
 
@@ -1128,8 +1140,6 @@ export interface DeclareInterface extends BaseNode {
   typeParameters?: TypeParameterDeclaration | null;
   extends?: Array<InterfaceExtends> | null;
   body: ObjectTypeAnnotation;
-  implements?: Array<ClassImplements> | null;
-  mixins?: Array<InterfaceExtends> | null;
 }
 
 export interface DeclareModule extends BaseNode {
@@ -1225,8 +1235,6 @@ export interface InterfaceDeclaration extends BaseNode {
   typeParameters?: TypeParameterDeclaration | null;
   extends?: Array<InterfaceExtends> | null;
   body: ObjectTypeAnnotation;
-  implements?: Array<ClassImplements> | null;
-  mixins?: Array<InterfaceExtends> | null;
 }
 
 export interface InterfaceTypeAnnotation extends BaseNode {
@@ -1972,6 +1980,12 @@ export interface TSAsExpression extends BaseNode {
   typeAnnotation: TSType;
 }
 
+export interface TSSatisfiesExpression extends BaseNode {
+  type: "TSSatisfiesExpression";
+  expression: Expression;
+  typeAnnotation: TSType;
+}
+
 export interface TSTypeAssertion extends BaseNode {
   type: "TSTypeAssertion";
   typeAnnotation: TSType;
@@ -2061,6 +2075,7 @@ export interface TSTypeParameter extends BaseNode {
   constraint?: TSType | null;
   default?: TSType | null;
   name: string;
+  const?: boolean | null;
   in?: boolean | null;
   out?: boolean | null;
 }
@@ -2202,6 +2217,7 @@ export type Expression =
   | PipelinePrimaryTopicReference
   | TSInstantiationExpression
   | TSAsExpression
+  | TSSatisfiesExpression
   | TSTypeAssertion
   | TSNonNullExpression;
 export type Binary = BinaryExpression | LogicalExpression;
@@ -2332,7 +2348,8 @@ export type FunctionParent =
   | ArrowFunctionExpression
   | ClassMethod
   | ClassPrivateMethod
-  | StaticBlock;
+  | StaticBlock
+  | TSModuleBlock;
 export type Pureish =
   | FunctionDeclaration
   | FunctionExpression
@@ -2378,6 +2395,7 @@ export type PatternLike =
   | ArrayPattern
   | ObjectPattern
   | TSAsExpression
+  | TSSatisfiesExpression
   | TSTypeAssertion
   | TSNonNullExpression;
 export type LVal =
@@ -2389,6 +2407,7 @@ export type LVal =
   | ObjectPattern
   | TSParameterProperty
   | TSAsExpression
+  | TSSatisfiesExpression
   | TSTypeAssertion
   | TSNonNullExpression;
 export type TSEntityName = Identifier | TSQualifiedName;
@@ -2436,7 +2455,7 @@ export type Property =
 export type UnaryLike = UnaryExpression | SpreadElement;
 export type Pattern = AssignmentPattern | ArrayPattern | ObjectPattern;
 export type Class = ClassExpression | ClassDeclaration;
-export type ModuleDeclaration =
+export type ImportOrExportDeclaration =
   | ExportAllDeclaration
   | ExportDefaultDeclaration
   | ExportNamedDeclaration
@@ -2650,6 +2669,7 @@ export type TypeScript =
   | TSTypeAliasDeclaration
   | TSInstantiationExpression
   | TSAsExpression
+  | TSSatisfiesExpression
   | TSTypeAssertion
   | TSEnumDeclaration
   | TSEnumMember
@@ -2723,6 +2743,11 @@ export type TSBaseType =
   | TSVoidKeyword
   | TSThisType
   | TSLiteralType;
+export type ModuleDeclaration =
+  | ExportAllDeclaration
+  | ExportDefaultDeclaration
+  | ExportNamedDeclaration
+  | ImportDeclaration;
 
 export interface Aliases {
   Standardized: Standardized;
@@ -2756,7 +2781,7 @@ export interface Aliases {
   UnaryLike: UnaryLike;
   Pattern: Pattern;
   Class: Class;
-  ModuleDeclaration: ModuleDeclaration;
+  ImportOrExportDeclaration: ImportOrExportDeclaration;
   ExportDeclaration: ExportDeclaration;
   ModuleSpecifier: ModuleSpecifier;
   Accessor: Accessor;
@@ -2774,6 +2799,7 @@ export interface Aliases {
   TSTypeElement: TSTypeElement;
   TSType: TSType;
   TSBaseType: TSBaseType;
+  ModuleDeclaration: ModuleDeclaration;
 }
 
 export type DeprecatedAliases =
@@ -2860,6 +2886,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -2966,6 +2993,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -3029,6 +3057,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -3109,6 +3138,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -3173,6 +3203,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -3236,6 +3267,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -3299,6 +3331,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -3388,6 +3421,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -3515,6 +3549,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -3597,6 +3632,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -3614,9 +3650,7 @@ export interface ParentMaps {
     | ClassExpression
     | DeclareClass
     | DeclareExportDeclaration
-    | DeclareInterface
-    | DeclaredPredicate
-    | InterfaceDeclaration;
+    | DeclaredPredicate;
   ClassMethod: ClassBody;
   ClassPrivateMethod: ClassBody;
   ClassPrivateProperty: ClassBody;
@@ -3674,6 +3708,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -3765,6 +3800,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -4024,6 +4060,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -4336,6 +4373,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -4509,6 +4547,7 @@ export interface ParentMaps {
     | TSParameterProperty
     | TSPropertySignature
     | TSQualifiedName
+    | TSSatisfiesExpression
     | TSTypeAliasDeclaration
     | TSTypeAssertion
     | TSTypePredicate
@@ -4591,6 +4630,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -4790,6 +4830,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -4858,6 +4899,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -4957,6 +4999,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -5022,6 +5065,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -5085,6 +5129,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -5173,6 +5218,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -5236,6 +5282,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -5318,6 +5365,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -5484,6 +5532,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -5547,6 +5596,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -5696,6 +5746,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -5784,6 +5835,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -5847,6 +5899,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -5910,6 +5963,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -5973,6 +6027,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -6036,6 +6091,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -6114,6 +6170,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -6177,6 +6234,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -6278,6 +6336,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -6367,6 +6426,7 @@ export interface ParentMaps {
     | TSModuleDeclaration
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -6480,6 +6540,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -6543,6 +6604,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -6563,6 +6625,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -6625,6 +6688,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -6648,6 +6712,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -6668,6 +6733,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -6689,6 +6755,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -6710,6 +6777,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -6722,6 +6790,7 @@ export interface ParentMaps {
   TSDeclareFunction:
     | BlockStatement
     | DoWhileStatement
+    | ExportDefaultDeclaration
     | ExportNamedDeclaration
     | ForInStatement
     | ForOfStatement
@@ -6779,6 +6848,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -6800,6 +6870,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -6834,6 +6905,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -6856,6 +6928,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -6876,6 +6949,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -6936,6 +7010,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -6975,6 +7050,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -6995,6 +7071,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7015,6 +7092,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7035,6 +7113,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7088,6 +7167,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7150,6 +7230,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -7173,6 +7254,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7193,6 +7275,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7213,6 +7296,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7233,6 +7317,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7263,6 +7348,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7291,6 +7377,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7300,6 +7387,72 @@ export interface ParentMaps {
     | TSTypeParameterInstantiation
     | TSUnionType
     | TemplateLiteral;
+  TSSatisfiesExpression:
+    | ArrayExpression
+    | ArrayPattern
+    | ArrowFunctionExpression
+    | AssignmentExpression
+    | AssignmentPattern
+    | AwaitExpression
+    | BinaryExpression
+    | BindExpression
+    | CallExpression
+    | ClassAccessorProperty
+    | ClassDeclaration
+    | ClassExpression
+    | ClassMethod
+    | ClassPrivateProperty
+    | ClassProperty
+    | ConditionalExpression
+    | Decorator
+    | DoWhileStatement
+    | ExportDefaultDeclaration
+    | ExpressionStatement
+    | ForInStatement
+    | ForOfStatement
+    | ForStatement
+    | IfStatement
+    | JSXExpressionContainer
+    | JSXSpreadAttribute
+    | JSXSpreadChild
+    | LogicalExpression
+    | MemberExpression
+    | NewExpression
+    | ObjectMethod
+    | ObjectProperty
+    | OptionalCallExpression
+    | OptionalMemberExpression
+    | ParenthesizedExpression
+    | PipelineBareFunction
+    | PipelineTopicExpression
+    | RestElement
+    | ReturnStatement
+    | SequenceExpression
+    | SpreadElement
+    | SwitchCase
+    | SwitchStatement
+    | TSAsExpression
+    | TSDeclareMethod
+    | TSEnumDeclaration
+    | TSEnumMember
+    | TSExportAssignment
+    | TSInstantiationExpression
+    | TSMethodSignature
+    | TSNonNullExpression
+    | TSPropertySignature
+    | TSSatisfiesExpression
+    | TSTypeAssertion
+    | TaggedTemplateExpression
+    | TemplateLiteral
+    | ThrowStatement
+    | TupleExpression
+    | TypeCastExpression
+    | UnaryExpression
+    | UpdateExpression
+    | VariableDeclarator
+    | WhileStatement
+    | WithStatement
+    | YieldExpression;
   TSStringKeyword:
     | TSArrayType
     | TSAsExpression
@@ -7311,6 +7464,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7331,6 +7485,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7351,6 +7506,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7372,6 +7528,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7474,6 +7631,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -7497,6 +7655,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7517,6 +7676,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7569,6 +7729,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7589,6 +7750,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7609,6 +7771,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7629,6 +7792,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7649,6 +7813,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7669,6 +7834,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7689,6 +7855,7 @@ export interface ParentMaps {
     | TSOptionalType
     | TSParenthesizedType
     | TSRestType
+    | TSSatisfiesExpression
     | TSTupleType
     | TSTypeAliasDeclaration
     | TSTypeAnnotation
@@ -7749,6 +7916,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -7814,6 +7982,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -7877,6 +8046,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -7979,6 +8149,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -8056,6 +8227,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -8183,6 +8355,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -8308,6 +8481,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -8396,6 +8570,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral
@@ -8538,6 +8713,7 @@ export interface ParentMaps {
     | TSMethodSignature
     | TSNonNullExpression
     | TSPropertySignature
+    | TSSatisfiesExpression
     | TSTypeAssertion
     | TaggedTemplateExpression
     | TemplateLiteral

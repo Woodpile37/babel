@@ -2,6 +2,7 @@ import * as babel from "@babel/core";
 import simplifyAccess from "../lib/index.js";
 
 const plugin = (_api, options) => {
+  // TODO(Babel 8): Remove includeUpdateExpression
   const { includeUpdateExpression, bindingNames } = options;
 
   return {
@@ -17,7 +18,9 @@ const plugin = (_api, options) => {
   };
 };
 
-it("simplifyAccess with default config", function () {
+const itBabel7 = process.env.BABEL_8_BREAKING ? it.skip : it;
+
+itBabel7("simplifyAccess with default config", function () {
   const code = `
     let a = foo++;
     a = ++foo;
@@ -62,7 +65,6 @@ it("simplifyAccess with default config", function () {
 
   expect(output).toMatchInlineSnapshot(`
     "var _foo, _bar;
-
     let a = (_foo = +foo, foo = _foo + 1, _foo);
     a = foo = +foo + 1;
     foo = foo + 1;
@@ -82,7 +84,6 @@ it("simplifyAccess with default config", function () {
     let c = baz = baz + 1;
     baz = baz + 1;
     c += 1;
-
     function f() {
       let foo = 1;
       let a = foo++;
@@ -165,7 +166,6 @@ it("simplifyAccess with includeUpdateExpression=false", function () {
     let c = baz = baz + 1;
     baz = baz + 1;
     c += 1;
-
     function f() {
       let foo = 1;
       let a = foo++;
@@ -177,5 +177,5 @@ it("simplifyAccess with includeUpdateExpression=false", function () {
       foo = a++;
       foo = ++a;
     }"
-`);
+  `);
 });

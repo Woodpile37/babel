@@ -12,7 +12,15 @@ import parser from "../parser";
 import cloneDeep from "./util/clone-deep";
 
 const debug = buildDebug("babel:transform:file");
-const LARGE_INPUT_SOURCEMAP_THRESHOLD = 3_000_000;
+
+// These regexps are copied from the convert-source-map package,
+// but without // or /* at the beginning of the comment.
+
+// eslint-disable-next-line max-len
+const INLINE_SOURCEMAP_REGEX =
+  /^[@#]\s+sourceMappingURL=data:(?:application|text)\/json;(?:charset[:=]\S+?;)?base64,(?:.*)$/;
+const EXTERNAL_SOURCEMAP_REGEX =
+  /^[@#][ \t]+sourceMappingURL=([^\s'"`]+)[ \t]*$/;
 
 export type NormalizedFile = {
   code: string;
@@ -36,9 +44,10 @@ export default function* normalizeFile(
     }
 
     if (options.cloneInputAst) {
-      ast = cloneDeep(ast) as t.File;
+      ast = cloneDeep(ast);
     }
   } else {
+    // @ts-expect-error todo: use babel-types ast typings in Babel parser
     ast = yield* parser(pluginPasses, options, code);
   }
 
@@ -71,15 +80,9 @@ export default function* normalizeFile(
           ) as any;
           const inputMapContent = fs.readFileSync(
             path.resolve(path.dirname(options.filename), match[1]),
+            "utf8",
           );
-          if (inputMapContent.length > LARGE_INPUT_SOURCEMAP_THRESHOLD) {
-            debug("skip merging input map > 1 MB");
-          } else {
-            inputMap = convertSourceMap.fromJSON(
-              // todo:
-              inputMapContent as unknown as string,
-            );
-          }
+          inputMap = convertSourceMap.fromJSON(inputMapContent);
         } catch (err) {
           debug("discarding unknown file input sourcemap", err);
         }
@@ -91,19 +94,10 @@ export default function* normalizeFile(
 
   return new File(options, {
     code,
-    ast,
+    ast: ast as t.File,
     inputMap,
   });
 }
-
-// These regexps are copied from the convert-source-map package,
-// but without // or /* at the beginning of the comment.
-
-// eslint-disable-next-line max-len
-const INLINE_SOURCEMAP_REGEX =
-  /^[@#]\s+sourceMappingURL=data:(?:application|text)\/json;(?:charset[:=]\S+?;)?base64,(?:.*)$/;
-const EXTERNAL_SOURCEMAP_REGEX =
-  /^[@#][ \t]+sourceMappingURL=([^\s'"`]+)[ \t]*$/;
 
 function extractCommentsFromList(
   regex: RegExp,

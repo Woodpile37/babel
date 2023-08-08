@@ -6,16 +6,16 @@ import type * as t from "@babel/types";
 const VALID_CALLEES = ["String", "Number", "Math"] as const;
 const INVALID_METHODS = ["random"] as const;
 
-function isValidCallee(val: string): val is typeof VALID_CALLEES[number] {
+function isValidCallee(val: string): val is (typeof VALID_CALLEES)[number] {
   return VALID_CALLEES.includes(
-    // @ts-expect-error
+    // @ts-expect-error val is a string
     val,
   );
 }
 
-function isInvalidMethod(val: string): val is typeof INVALID_METHODS[number] {
+function isInvalidMethod(val: string): val is (typeof INVALID_METHODS)[number] {
   return INVALID_METHODS.includes(
-    // @ts-expect-error
+    // @ts-expect-error val is a string
     val,
   );
 }
@@ -61,6 +61,12 @@ function deopt(path: NodePath, state: State) {
   state.deoptPath = path;
   state.confident = false;
 }
+
+const Globals = new Map([
+  ["undefined", undefined],
+  ["Infinity", Infinity],
+  ["NaN", NaN],
+]);
 
 /**
  * We wrap the _evaluate method so we can track `seen` nodes, we push an item
@@ -158,7 +164,7 @@ function _evaluate(path: NodePath, state: State): any {
     return evaluateCached(path.get("expression"), state);
   }
 
-  // "foo".length
+  // "foo".length, "foo"[0]
   if (
     path.isMemberExpression() &&
     !path.parentPath.isCallExpression({ callee: path.node })
@@ -166,12 +172,24 @@ function _evaluate(path: NodePath, state: State): any {
     const property = path.get("property");
     const object = path.get("object");
 
-    if (object.isLiteral() && property.isIdentifier()) {
+    if (object.isLiteral()) {
       // @ts-expect-error todo(flow->ts): instead of typeof - would it be better to check type of ast node?
       const value = object.node.value;
       const type = typeof value;
-      if (type === "number" || type === "string") {
-        return value[property.node.name];
+
+      let key = null;
+      if (path.node.computed) {
+        key = evaluateCached(property, state);
+        if (!state.confident) return;
+      } else if (property.isIdentifier()) {
+        key = property.node.name;
+      }
+      if (
+        (type === "number" || type === "string") &&
+        key != null &&
+        (typeof key === "number" || typeof key === "string")
+      ) {
+        return value[key];
       }
     }
   }
@@ -179,31 +197,34 @@ function _evaluate(path: NodePath, state: State): any {
   if (path.isReferencedIdentifier()) {
     const binding = path.scope.getBinding(path.node.name);
 
-    if (binding && binding.constantViolations.length > 0) {
-      return deopt(binding.path, state);
+    if (binding) {
+      if (
+        binding.constantViolations.length > 0 ||
+        path.node.start < binding.path.node.end
+      ) {
+        deopt(binding.path, state);
+        return;
+      }
+      if (binding.hasValue) {
+        return binding.value;
+      }
     }
 
-    if (binding && path.node.start < binding.path.node.end) {
-      return deopt(binding.path, state);
+    const name = path.node.name;
+    if (Globals.has(name)) {
+      if (!binding) {
+        return Globals.get(name);
+      }
+      deopt(binding.path, state);
+      return;
     }
 
-    if (binding?.hasValue) {
-      return binding.value;
+    const resolved = path.resolve();
+    if (resolved === path) {
+      deopt(path, state);
+      return;
     } else {
-      if (path.node.name === "undefined") {
-        return binding ? deopt(binding.path, state) : undefined;
-      } else if (path.node.name === "Infinity") {
-        return binding ? deopt(binding.path, state) : Infinity;
-      } else if (path.node.name === "NaN") {
-        return binding ? deopt(binding.path, state) : NaN;
-      }
-
-      const resolved = path.resolve();
-      if (resolved === path) {
-        return deopt(path, state);
-      } else {
-        return evaluateCached(resolved, state);
-      }
+      return evaluateCached(resolved, state);
     }
   }
 
@@ -246,7 +267,8 @@ function _evaluate(path: NodePath, state: State): any {
       if (elemValue.confident) {
         arr.push(elemValue.value);
       } else {
-        return deopt(elemValue.deopt, state);
+        deopt(elemValue.deopt, state);
+        return;
       }
     }
     return arr;
@@ -257,30 +279,34 @@ function _evaluate(path: NodePath, state: State): any {
     const props = path.get("properties");
     for (const prop of props) {
       if (prop.isObjectMethod() || prop.isSpreadElement()) {
-        return deopt(prop, state);
+        deopt(prop, state);
+        return;
       }
-      const keyPath: any = prop.get("key");
-      let key = keyPath;
+      const keyPath = (prop as NodePath<t.ObjectProperty>).get("key");
+      let key;
       // @ts-expect-error todo(flow->ts): type refinement issues ObjectMethod and SpreadElement somehow not excluded
       if (prop.node.computed) {
-        key = key.evaluate();
+        key = keyPath.evaluate();
         if (!key.confident) {
-          return deopt(key.deopt, state);
+          deopt(key.deopt, state);
+          return;
         }
         key = key.value;
-      } else if (key.isIdentifier()) {
-        key = key.node.name;
+      } else if (keyPath.isIdentifier()) {
+        key = keyPath.node.name;
       } else {
-        key = key.node.value;
+        key = (
+          keyPath.node as t.StringLiteral | t.NumericLiteral | t.BigIntLiteral
+        ).value;
       }
-      // todo(flow->ts): remove typecast
-      const valuePath = prop.get("value") as NodePath;
+      const valuePath = (prop as NodePath<t.ObjectProperty>).get("value");
       let value = valuePath.evaluate();
       if (!value.confident) {
-        return deopt(value.deopt, state);
+        deopt(value.deopt, state);
+        return;
       }
       value = value.value;
-      // @ts-expect-error
+      // @ts-expect-error key is any type
       obj[key] = value;
     }
     return obj;
@@ -309,6 +335,11 @@ function _evaluate(path: NodePath, state: State): any {
         if (!state.confident) return;
 
         return left && right;
+      case "??":
+        state.confident = leftConfident && (left != null || rightConfident);
+        if (!state.confident) return;
+
+        return left ?? right;
     }
   }
 
@@ -424,7 +455,9 @@ function evaluateQuasis(
   let str = "";
 
   let i = 0;
-  const exprs = path.get("expressions");
+  const exprs: Array<NodePath<t.Node>> = path.isTemplateLiteral()
+    ? path.get("expressions")
+    : path.get("quasi.expressions");
 
   for (const elem of quasis) {
     // not confident, evaluated an expression we don't like

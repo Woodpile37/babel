@@ -32,14 +32,20 @@ yarn --version
 #                                   TEST                                       #
 #==============================================================================#
 
-# Don't use Yarn 2
-export YARN_IGNORE_PATH=1
-
 startLocalRegistry "$root"/verdaccio-config.yml
-yarn install
+yarn install --no-immutable
+yarn info
 
-# Only run js,jsx,misc format tests
-# Without --runInBand CircleCI hangs.
-yarn test "tests/format/(jsx?|misc)/" --update-snapshot --runInBand
+# Test typings for @babel/parser
+yarn lint:typecheck
+
+# https://github.com/babel/babel/pull/14892#issuecomment-1233180626
+echo "export default () => () => {}" > src/main/create-print-pre-check-function.js
+
+# https://github.com/babel/babel/pull/15400#issuecomment-1414539133
+# Temporarily ignore tests, use `rm -f path/to/jsfmt.spec.js`
+# rm -f path/to/jsfmt.spec.js
+
+yarn test "tests/format/(jsx?|misc|typescript|flow|flow-repo)/" --update-snapshot --runInBand
 
 cleanup

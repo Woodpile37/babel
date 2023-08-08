@@ -4,9 +4,11 @@ import type * as t from "@babel/types";
 import jsesc from "jsesc";
 
 export function Identifier(this: Printer, node: t.Identifier) {
-  this.exactSource(node.loc, () => {
-    this.word(node.name);
-  });
+  this.sourceIdentifierName(
+    // @ts-expect-error Undocumented property identifierName
+    node.loc?.identifierName || node.name,
+  );
+  this.word(node.name);
 }
 
 export function ArgumentPlaceholder(this: Printer) {
@@ -24,13 +26,14 @@ export function ObjectExpression(this: Printer, node: t.ObjectExpression) {
   const props = node.properties;
 
   this.token("{");
-  this.printInnerComments(node);
 
   if (props.length) {
     this.space();
     this.printList(props, node, { indent: true, statement: true });
     this.space();
   }
+
+  this.sourceWithOffset("end", node.loc, 0, -1);
 
   this.token("}");
 }
@@ -86,7 +89,6 @@ export function ArrayExpression(this: Printer, node: t.ArrayExpression) {
   const len = elems.length;
 
   this.token("[");
-  this.printInnerComments(node);
 
   for (let i = 0; i < elems.length; i++) {
     const elem = elems[i];
@@ -117,19 +119,21 @@ export function RecordExpression(this: Printer, node: t.RecordExpression) {
   if (this.format.recordAndTupleSyntaxType === "bar") {
     startToken = "{|";
     endToken = "|}";
-  } else if (this.format.recordAndTupleSyntaxType === "hash") {
-    startToken = "#{";
-    endToken = "}";
-  } else {
+  } else if (
+    this.format.recordAndTupleSyntaxType !== "hash" &&
+    this.format.recordAndTupleSyntaxType != null
+  ) {
     throw new Error(
       `The "recordAndTupleSyntaxType" generator option must be "bar" or "hash" (${JSON.stringify(
         this.format.recordAndTupleSyntaxType,
       )} received).`,
     );
+  } else {
+    startToken = "#{";
+    endToken = "}";
   }
 
   this.token(startToken);
-  this.printInnerComments(node);
 
   if (props.length) {
     this.space();
@@ -158,7 +162,6 @@ export function TupleExpression(this: Printer, node: t.TupleExpression) {
   }
 
   this.token(startToken);
-  this.printInnerComments(node);
 
   for (let i = 0; i < elems.length; i++) {
     const elem = elems[i];
@@ -206,17 +209,9 @@ export function StringLiteral(this: Printer, node: t.StringLiteral) {
     return;
   }
 
-  const val = jsesc(
-    node.value,
-    process.env.BABEL_8_BREAKING
-      ? this.format.jsescOption
-      : Object.assign(
-          this.format.jsescOption,
-          this.format.jsonCompatibleStrings && { json: true },
-        ),
-  );
+  const val = jsesc(node.value, this.format.jsescOption);
 
-  return this.token(val);
+  this.token(val);
 }
 
 export function BigIntLiteral(this: Printer, node: t.BigIntLiteral) {

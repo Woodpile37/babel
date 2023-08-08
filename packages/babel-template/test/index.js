@@ -31,11 +31,6 @@ describe("@babel/template", function () {
     expect(generator(output).code).toBe(comments);
   });
 
-  it("should preserve comments with a flag", function () {
-    const output = template(comments, { preserveComments: true })();
-    expect(generator(output).code).toBe(comments);
-  });
-
   it("should preserve comments with a flag when using .ast", function () {
     const output1 = template.ast(comments, { preserveComments: true });
     const output2 = template({ preserveComments: true }).ast(comments);
@@ -275,6 +270,64 @@ describe("@babel/template", function () {
       });
 
       expect(generator(result).code).toEqual("<div>{'content'}</div>");
+    });
+
+    it("should work with `export { x }`", () => {
+      const result = template.ast`
+        export { ${t.identifier("x")} }
+        $$$$BABEL_TPL$0;
+      `;
+      expect(result).toMatchInlineSnapshot(`
+        Array [
+          Object {
+            "declaration": null,
+            "loc": undefined,
+            "source": null,
+            "specifiers": Array [
+              Object {
+                "exported": Object {
+                  "name": "x",
+                  "type": "Identifier",
+                },
+                "loc": undefined,
+                "local": Object {
+                  "name": "x",
+                  "type": "Identifier",
+                },
+                "type": "ExportSpecifier",
+              },
+            ],
+            "type": "ExportNamedDeclaration",
+          },
+          Object {
+            "expression": Object {
+              "loc": undefined,
+              "name": "$$$$BABEL_TPL$0",
+              "type": "Identifier",
+            },
+            "loc": undefined,
+            "type": "ExpressionStatement",
+          },
+        ]
+      `);
+    });
+
+    it("should work with `const a = { x }`", () => {
+      const result = template.ast`
+        {
+          const a = { ${t.identifier("x")} };
+          $$$$BABEL_TPL$0;
+        }
+      `;
+
+      expect(generator(result).code).toMatchInlineSnapshot(`
+        "{
+          const a = {
+            x
+          };
+          $$$$BABEL_TPL$0;
+        }"
+      `);
     });
   });
 

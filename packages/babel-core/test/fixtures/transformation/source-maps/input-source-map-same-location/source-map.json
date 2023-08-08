@@ -1,7 +1,13 @@
 {
-  "mappings": "AAAA,UAAU,Y;SAAM;AAAC,CAAjB",
-  "names": [],
-  "sources": ["source-maps/input-source-map-same-location/input.js"],
-  "sourcesContent": ["var foo = () => 4;"],
-  "version": 3
+  "version": 3,
+  "names": [
+    "foo"
+  ],
+  "sources": [
+    "source-maps/input-source-map-same-location/input.js"
+  ],
+  "sourcesContent": [
+    "var foo = () => 4;"
+  ],
+  "mappings": "AAAA,IAAAA,GAAA,GAAU,SAAAA,CAAA,E;SAAM,C;CAAC"
 }

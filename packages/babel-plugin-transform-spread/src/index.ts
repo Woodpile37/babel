@@ -1,6 +1,7 @@
 import { declare } from "@babel/helper-plugin-utils";
 import { skipTransparentExprWrappers } from "@babel/helper-skip-transparent-expression-wrappers";
-import { types as t, File } from "@babel/core";
+import type { File } from "@babel/core";
+import { types as t } from "@babel/core";
 import type { NodePath, Scope } from "@babel/traverse";
 
 type ListElement = t.SpreadElement | t.Expression;
@@ -179,6 +180,7 @@ export default declare((api, options: Options) => {
               "=",
               temp,
               // object must not be Super when `temp` is an identifier
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
               callee.object as t.Expression,
             );
             contextLiteral = temp;

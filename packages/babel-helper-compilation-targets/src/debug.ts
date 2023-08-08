@@ -12,27 +12,30 @@ export function getInclusionReasons(
   targetVersions: Targets,
   list: { [key: string]: Targets },
 ) {
-  const minVersions = list[item] || ({} as Targets);
+  const minVersions = list[item] || {};
 
-  return (Object.keys(targetVersions) as Target[]).reduce((result, env) => {
-    const minVersion = getLowestImplementedVersion(minVersions, env);
-    const targetVersion = targetVersions[env];
+  return (Object.keys(targetVersions) as Target[]).reduce(
+    (result, env) => {
+      const minVersion = getLowestImplementedVersion(minVersions, env);
+      const targetVersion = targetVersions[env];
 
-    if (!minVersion) {
-      result[env] = prettifyVersion(targetVersion);
-    } else {
-      const minIsUnreleased = isUnreleasedVersion(minVersion, env);
-      const targetIsUnreleased = isUnreleasedVersion(targetVersion, env);
-
-      if (
-        !targetIsUnreleased &&
-        (minIsUnreleased ||
-          semver.lt(targetVersion.toString(), semverify(minVersion)))
-      ) {
+      if (!minVersion) {
         result[env] = prettifyVersion(targetVersion);
-      }
-    }
+      } else {
+        const minIsUnreleased = isUnreleasedVersion(minVersion, env);
+        const targetIsUnreleased = isUnreleasedVersion(targetVersion, env);
 
-    return result;
-  }, {} as Partial<Record<Target, string>>);
+        if (
+          !targetIsUnreleased &&
+          (minIsUnreleased ||
+            semver.lt(targetVersion.toString(), semverify(minVersion)))
+        ) {
+          result[env] = prettifyVersion(targetVersion);
+        }
+      }
+
+      return result;
+    },
+    {} as Partial<Record<Target, string>>,
+  );
 }

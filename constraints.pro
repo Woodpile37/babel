@@ -29,12 +29,11 @@ gen_enforced_field(WorkspaceCwd, 'publishConfig.access', null) :-
   workspace_field(WorkspaceCwd, 'private', true).
 
 % Enforces the engines.node field for all workspaces except '@babel/eslint*'
+% TODO(Babel 8): Enforce '^18.16.0 || >=20.0.0' for al workspaces
 gen_enforced_field(WorkspaceCwd, 'engines.node', '>=6.9.0') :-
   \+ workspace_field(WorkspaceCwd, 'private', true),
   % Get the workspace name
   workspace_ident(WorkspaceCwd, WorkspaceIdent),
-  % Exempt from the rule as it supports '>=4'. TODO: remove with the next major
-  WorkspaceIdent \= '@babel/plugin-proposal-unicode-property-regex',
   % Exempt from the rule as it supports '>=6.0.0'. TODO: remove with the next major
   WorkspaceIdent \= '@babel/parser',
   % Skip '@babel/eslint*' workspaces. TODO: remove with the next major
@@ -48,6 +47,15 @@ gen_enforced_field(WorkspaceCwd, 'engines.node', '^10.13.0 || ^12.13.0 || >=14.0
   workspace_ident(WorkspaceCwd, WorkspaceIdent),
   % Only target '@babel/eslint*' workspaces
   atom_concat('@babel/eslint', _, WorkspaceIdent).
+
+% (Babel 8) Enforces the engines.node field for all workspaces except private ones
+gen_enforced_field(WorkspaceCwd, 'conditions.BABEL_8_BREAKING.0.engines.node', '^16.20.0 || ^18.16.0 || >=20.0.0') :-
+  \+ workspace_field(WorkspaceCwd, 'private', true).
+
+% Ensure that the BABEL_8_BREAKING condition has both 'yes' and 'no' cases
+gen_enforced_field(WorkspaceCwd, 'conditions.BABEL_8_BREAKING.1', {}) :-
+  workspace_field(WorkspaceCwd, 'conditions.BABEL_8_BREAKING.0', _),
+  \+ workspace_field(WorkspaceCwd, 'conditions.BABEL_8_BREAKING.1', _).
 
 % Removes the 'engines.node' field from private workspaces
 gen_enforced_field(WorkspaceCwd, 'engines.node', null) :-
@@ -85,6 +93,7 @@ gen_enforced_field(WorkspaceCwd, 'exports', '{ ".": "./lib/index.js", "./package
   WorkspaceIdent \= '@babel/parser',
   WorkspaceIdent \= '@babel/plugin-transform-react-jsx', % TODO: Remove in Babel 8
   WorkspaceIdent \= '@babel/standalone',
+  WorkspaceIdent \= '@babel/types', % @babel/types has types exports
   \+ atom_concat('@babel/eslint-', _, WorkspaceIdent),
   \+ atom_concat('@babel/runtime', _, WorkspaceIdent).
 
@@ -92,7 +101,7 @@ gen_enforced_field(WorkspaceCwd, 'exports', '{ ".": "./lib/index.js", "./package
 gen_enforced_field(WorkspaceCwd, 'type', 'commonjs') :-
   \+ workspace_field(WorkspaceCwd, 'type', 'module').
 
-% Enforce a default 'conditions', unless it's already specified
+% Enforces a default 'conditions', unless it's already specified
 gen_enforced_field(WorkspaceCwd, 'conditions', '{ "USE_ESM": [{ "type": "module" }, null] }') :-
   \+ workspace_field(WorkspaceCwd, 'private', true),
   \+ workspace_field(WorkspaceCwd, 'conditions', _),
@@ -100,3 +109,12 @@ gen_enforced_field(WorkspaceCwd, 'conditions', '{ "USE_ESM": [{ "type": "module"
   % Exclude some packages
   workspace_ident(WorkspaceCwd, WorkspaceIdent),
   WorkspaceIdent \= '@babel/compat-data'.
+
+% Enforces that @babel/runtime-corejs2 must depend on core-js 2
+gen_enforced_dependency(WorkspaceCwd, 'core-js', '^2.6.12', DependencyType) :-
+  % Get the workspace name
+  workspace_ident(WorkspaceCwd, WorkspaceIdent),
+  % Only consider 'dependencies'
+  (DependencyType = 'dependencies'),
+  % The rule works for @babel/runtime-corejs2 only
+  (WorkspaceIdent = '@babel/runtime-corejs2').

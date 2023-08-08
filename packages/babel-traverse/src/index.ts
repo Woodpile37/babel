@@ -9,10 +9,10 @@ import type * as t from "@babel/types";
 import * as cache from "./cache";
 import type NodePath from "./path";
 import type { default as Scope, Binding } from "./scope";
-import type { Visitor } from "./types";
+import type { ExplodedVisitor, Visitor } from "./types";
 import { traverseNode } from "./traverse-node";
 
-export type { Visitor, Binding };
+export type { ExplodedVisitor, Visitor, Binding };
 export { default as NodePath } from "./path";
 export { default as Scope } from "./scope";
 export { default as Hub } from "./hub";
@@ -20,18 +20,15 @@ export type { HubInterface } from "./hub";
 
 export { visitors };
 
-// fixme: The TraverseOptions should have been { scope ... } & Visitor<S>
-// however TS does not support excluding certain string literals from general string
-// type. If we change here to { scope ... } & Visitor<S>, TS will throw
-// noScope: boolean because it matched `noScope` to the [k in string]: VisitNode<> catch-all
-// in Visitor
-export type TraverseOptions<S = t.Node> =
-  | {
-      scope?: Scope;
-      noScope?: boolean;
-      denylist?: string[];
-    }
-  | Visitor<S>;
+export type TraverseOptions<S = t.Node> = {
+  scope?: Scope;
+  noScope?: boolean;
+  denylist?: string[];
+  shouldSkip?: (node: NodePath) => boolean;
+} & Visitor<S>;
+
+export type ExplodedTraverseOptions<S = t.Node> = TraverseOptions<S> &
+  ExplodedVisitor<S>;
 
 function traverse<S>(
   parent: t.Node,
@@ -75,7 +72,7 @@ function traverse<Options extends TraverseOptions>(
 
   visitors.explode(opts as Visitor);
 
-  traverseNode(parent, opts, scope, state, parentPath);
+  traverseNode(parent, opts as ExplodedVisitor, scope, state, parentPath);
 }
 
 export default traverse;
@@ -85,12 +82,13 @@ traverse.verify = visitors.verify;
 traverse.explode = visitors.explode;
 
 traverse.cheap = function (node: t.Node, enter: (node: t.Node) => void) {
-  return traverseFast(node, enter);
+  traverseFast(node, enter);
+  return;
 };
 
 traverse.node = function (
   node: t.Node,
-  opts: TraverseOptions,
+  opts: ExplodedTraverseOptions,
   scope?: Scope,
   state?: any,
   path?: NodePath,

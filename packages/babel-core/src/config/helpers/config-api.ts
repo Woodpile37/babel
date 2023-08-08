@@ -11,7 +11,7 @@ import type {
 
 import type { AssumptionName, CallerMetadata } from "../validation/options";
 
-import * as Context from "../cache-contexts";
+import type * as Context from "../cache-contexts";
 
 type EnvFunction = {
   (): string;
@@ -119,6 +119,10 @@ function assertVersion(range: string | number): void {
   }
   if (typeof range !== "string") {
     throw new Error("Expected string or integer value.");
+  }
+  // TODO(Babel 8): Update all the version checks
+  if (process.env.BABEL_8_BREAKING) {
+    range += ` || ^8.0.0-0`;
   }
 
   if (semver.satisfies(coreVersion, range)) return;

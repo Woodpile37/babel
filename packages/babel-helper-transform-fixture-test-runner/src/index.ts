@@ -13,7 +13,6 @@ import {
   type TaskOptions,
 } from "@babel/helper-fixtures";
 import { codeFrameColumns } from "@babel/code-frame";
-import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
 import * as helpers from "./helpers";
 import assert from "assert";
 import fs from "fs";
@@ -151,6 +150,8 @@ function runCacheableScriptInTestContext(
     id: filename,
     exports: {},
   };
+  moduleCache[filename] = module;
+
   const req = (id: string) =>
     runModuleInTestContext(id, filename, context, moduleCache);
   const dirname = path.dirname(filename);
@@ -184,15 +185,12 @@ function runModuleInTestContext(
   // stronger cache guarantee than the LRU's Script cache.
   if (moduleCache[filename]) return moduleCache[filename].exports;
 
-  const module = runCacheableScriptInTestContext(
+  return runCacheableScriptInTestContext(
     filename,
     () => fs.readFileSync(filename, "utf8"),
     context,
     moduleCache,
-  );
-  moduleCache[filename] = module;
-
-  return module.exports;
+  ).exports;
 }
 
 /**
@@ -360,24 +358,29 @@ async function run(task: Test) {
     }
 
     if (validateLogs) {
+      const normalizationOpts = {
+        normalizePathSeparator: true,
+        normalizePresetEnvDebug: task.taskDir.includes("babel-preset-env"),
+      };
+
       validateFile(
-        normalizeOutput(actualLogs.stdout, /* normalizePathSeparator */ true),
+        normalizeOutput(actualLogs.stdout, normalizationOpts),
         stdout.loc,
         stdout.code,
       );
       validateFile(
-        normalizeOutput(actualLogs.stderr, /* normalizePathSeparator */ true),
+        normalizeOutput(actualLogs.stderr, normalizationOpts),
         stderr.loc,
         stderr.code,
       );
     }
   }
 
-  if (task.sourceMap) {
+  if (opts.sourceMaps === true) {
     try {
       expect(result.map).toEqual(task.sourceMap);
     } catch (e) {
-      if (!process.env.OVERWRITE || !task.sourceMapFile) throw e;
+      if (!process.env.OVERWRITE && task.sourceMap) throw e;
 
       console.log(`Updated test file: ${task.sourceMapFile.loc}`);
       fs.writeFileSync(
@@ -385,17 +388,6 @@ async function run(task: Test) {
         JSON.stringify(result.map, null, 2),
       );
     }
-  }
-
-  if (task.sourceMappings) {
-    const consumer = new TraceMap(result.map);
-
-    task.sourceMappings.forEach(function (mapping) {
-      const actual = mapping.original;
-
-      const expected = originalPositionFor(consumer, mapping.generated);
-      expect({ line: expected.line, column: expected.column }).toEqual(actual);
-    });
   }
 
   if (execCode && resultExec) {
@@ -425,7 +417,10 @@ function escapeRegExp(string: string) {
   return string.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&");
 }
 
-function normalizeOutput(code: string, normalizePathSeparator?: boolean) {
+function normalizeOutput(
+  code: string,
+  { normalizePathSeparator = false, normalizePresetEnvDebug = false } = {},
+) {
   const projectRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../../../",
@@ -454,6 +449,26 @@ function normalizeOutput(code: string, normalizePathSeparator?: boolean) {
       );
     }
   }
+
+  if (!process.env.BABEL_8_BREAKING) {
+    // In Babel 8, preset-env logs transform- instead of proposal-. Manually rewrite
+    // the output logs so that we don't have to duplicate all the debug fixtures for
+    // the two different Babel versions.
+    if (normalizePresetEnvDebug) {
+      result = result.replace(/(\s+)proposal-/gm, "$1transform-");
+    }
+
+    // For some reasons, in older Node.js versions some symlinks are not properly
+    // resolved. The behavior is still ok, but we need to unify the output with
+    // newer Node.js versions.
+    if (parseInt(process.versions.node, 10) <= 8) {
+      result = result.replace(
+        /<CWD>\/node_modules\/@babel\/runtime-corejs3/g,
+        "<CWD>/packages/babel-runtime-corejs3",
+      );
+    }
+  }
+
   return result;
 }
 
@@ -526,10 +541,15 @@ export default function (
 
           async function () {
             const runTask = () => run(task);
-            if ("sourceMap" in task.options === false) {
-              task.options.sourceMap = !!(
-                task.sourceMappings || task.sourceMap
+
+            if ("sourceMap" in task.options) {
+              throw new Error(
+                "`sourceMap` option is deprecated. Use `sourceMaps` instead.",
               );
+            }
+
+            if ("sourceMaps" in task.options === false) {
+              task.options.sourceMaps = !!task.sourceMap;
             }
 
             Object.assign(task.options, taskOpts);

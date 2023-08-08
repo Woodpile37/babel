@@ -98,6 +98,7 @@ export default function transformClass(
   builtinClasses: ReadonlySet<string>,
   isLoose: boolean,
   assumptions: ClassAssumptions,
+  supportUnicodeId: boolean,
 ) {
   const classState: State = {
     parent: undefined,
@@ -162,16 +163,13 @@ export default function transformClass(
   }
 
   /**
-   * Creates a class constructor or bail out if there is none
+   * Creates a class constructor or bail out if there is one
    */
   function maybeCreateConstructor() {
-    let hasConstructor = false;
-    const paths = classState.path.get("body.body");
-    for (const path of paths) {
-      hasConstructor = path.equals("kind", "constructor");
-      if (hasConstructor) break;
+    const classBodyPath = classState.path.get("body");
+    for (const path of classBodyPath.get("body")) {
+      if (path.isClassMethod({ kind: "constructor" })) return;
     }
-    if (hasConstructor) return;
 
     let params: t.FunctionExpression["params"], body;
 
@@ -188,12 +186,10 @@ export default function transformClass(
       body = t.blockStatement([]);
     }
 
-    classState.path
-      .get("body")
-      .unshiftContainer(
-        "body",
-        t.classMethod("constructor", t.identifier("constructor"), params, body),
-      );
+    classBodyPath.unshiftContainer(
+      "body",
+      t.classMethod("constructor", t.identifier("constructor"), params, body),
+    );
   }
 
   function buildBody() {
@@ -508,7 +504,14 @@ export default function transformClass(
       if (node.kind === "method") {
         // @ts-expect-error Fixme: we are passing a ClassMethod to nameFunction, but nameFunction
         // does not seem to support it
-        fn = nameFunction({ id: key, node: node, scope });
+        fn =
+          nameFunction(
+            // @ts-expect-error Fixme: we are passing a ClassMethod to nameFunction, but nameFunction
+            // does not seem to support it
+            { id: key, node: node, scope },
+            undefined,
+            supportUnicodeId,
+          ) ?? fn;
       }
     } else {
       // todo(flow->ts) find a way to avoid "key as t.StringLiteral" below which relies on this assignment
@@ -570,11 +573,17 @@ export default function transformClass(
 
       const key = t.toComputedKey(node, node.key);
       if (t.isStringLiteral(key)) {
-        func = nameFunction({
-          node: func,
-          id: key,
-          scope,
-        });
+        // @ts-expect-error: requires strictNullCheck
+        func =
+          nameFunction(
+            {
+              node: func,
+              id: key,
+              scope,
+            },
+            undefined,
+            supportUnicodeId,
+          ) ?? func;
       }
 
       const expr = t.expressionStatement(
@@ -636,7 +645,7 @@ export default function transformClass(
     classState.pushedConstructor = true;
 
     // we haven't pushed any descriptors yet
-    // @ts-expect-error todo(flow->ts) maybe remove this block - properties from condition are not used anywhere esle
+    // @ts-expect-error todo(flow->ts) maybe remove this block - properties from condition are not used anywhere else
     if (classState.hasInstanceDescriptors || classState.hasStaticDescriptors) {
       pushDescriptors();
     }
@@ -689,7 +698,7 @@ export default function transformClass(
 
     for (const elem of node.body.body) {
       if (!t.isClassMethod(elem) || !elem.computed) continue;
-      if (scope.isPure(elem.key, /* constatns only*/ true)) continue;
+      if (scope.isPure(elem.key, /* constants only*/ true)) continue;
 
       const id = scope.generateUidIdentifierBasedOnNode(elem.key);
       dynamicKeys.set(id.name, elem.key);

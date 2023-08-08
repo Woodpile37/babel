@@ -282,6 +282,14 @@ describe("scope", () => {
       });
     });
 
+    it("switch discriminant scope", () => {
+      expect(
+        getPath(`let a = "outside"; switch (a) { default: let a = "inside" }`)
+          .get("body.1.discriminant")
+          .scope.getBinding("a").path.node.init.value,
+      ).toBe("outside");
+    });
+
     it("variable declaration", function () {
       expect(getPath("var foo = null;").scope.getBinding("foo").path.type).toBe(
         "VariableDeclarator",
@@ -378,6 +386,23 @@ describe("scope", () => {
       ).toBe("ImportSpecifier");
     });
 
+    it("import type and func with duplicate name", function () {
+      expect(() => {
+        getPath(
+          `
+            import type {Foo} from 'foo';
+            import {type Foo2} from 'foo';
+            function Foo(){}
+            function Foo2(){}
+          `,
+          {
+            plugins: ["typescript"],
+            sourceType: "module",
+          },
+        );
+      }).not.toThrow();
+    });
+
     it("variable constantness", function () {
       expect(getPath("var a = 1;").scope.getBinding("a").constant).toBe(true);
       expect(getPath("var a = 1; a = 2;").scope.getBinding("a").constant).toBe(
@@ -389,6 +414,44 @@ describe("scope", () => {
       expect(
         getPath("var a = 1; var a = 2;").scope.getBinding("a").constant,
       ).toBe(false);
+    });
+
+    it("variable constantness in loops", () => {
+      let scopePath = null;
+      const isAConstant = code => {
+        let path = getPath(code);
+        if (scopePath) path = path.get(scopePath);
+        return path.scope.getBinding("a").constant;
+      };
+
+      expect(isAConstant("for (_ of ns) { var a = 1; }")).toBe(false);
+      expect(isAConstant("for (_ in ns) { var a = 1; }")).toBe(false);
+      expect(isAConstant("for (;;) { var a = 1; }")).toBe(false);
+      expect(isAConstant("while (1) { var a = 1; }")).toBe(false);
+      expect(isAConstant("do { var a = 1; } while (1)")).toBe(false);
+
+      expect(isAConstant("for (var a of ns) {}")).toBe(false);
+      expect(isAConstant("for (var a in ns) {}")).toBe(false);
+      expect(isAConstant("for (var a;;) {}")).toBe(true);
+
+      scopePath = "body.0.body.expression";
+      expect(isAConstant("for (_ of ns) () => { var a = 1; }")).toBe(true);
+      expect(isAConstant("for (_ in ns) () => { var a = 1; }")).toBe(true);
+      expect(isAConstant("for (;;) () => { var a = 1; }")).toBe(true);
+      expect(isAConstant("while (1) () => { var a = 1; }")).toBe(true);
+      expect(isAConstant("do () => { var a = 1; }; while (1)")).toBe(true);
+
+      scopePath = "body.0.body";
+      expect(isAConstant("for (_ of ns) { let a = 1; }")).toBe(true);
+      expect(isAConstant("for (_ in ns) { let a = 1; }")).toBe(true);
+      expect(isAConstant("for (;;) { let a = 1; }")).toBe(true);
+      expect(isAConstant("while (1) { let a = 1; }")).toBe(true);
+      expect(isAConstant("do { let a = 1; } while (1)")).toBe(true);
+
+      scopePath = "body.0";
+      expect(isAConstant("for (let a of ns) {}")).toBe(true);
+      expect(isAConstant("for (let a in ns) {}")).toBe(true);
+      expect(isAConstant("for (let a;;) {}")).toBe(true);
     });
 
     test("label", function () {
@@ -624,6 +687,12 @@ describe("scope", () => {
         expect(() => getPath(ast)).toThrowErrorMatchingSnapshot();
       });
 
+      it("using", () => {
+        const ast = createTryCatch("using");
+
+        expect(() => getPath(ast)).toThrowErrorMatchingSnapshot();
+      });
+
       it("var", () => {
         const ast = createTryCatch("var");
 
@@ -658,7 +727,7 @@ describe("scope", () => {
         ];
 
         ast[0].declare = true;
-        expect(() => getPath(ast)).not.toThrowError();
+        expect(() => getPath(ast)).not.toThrow();
       });
     });
 
@@ -923,7 +992,6 @@ describe("scope", () => {
       classDeclaration.scope.push({ id: t.identifier("class") });
       expect(program.toString()).toMatchInlineSnapshot(`
         "var class;
-
         class A {}"
       `);
       expect(program.scope.hasOwnBinding("class")).toBe(true);
@@ -934,7 +1002,6 @@ describe("scope", () => {
       assignmentPattern.scope.push({ id: t.identifier("ref") });
       expect(program.toString()).toMatchInlineSnapshot(`
         "var ref;
-
         (a = f()) => {};"
       `);
       expect(program.scope.hasOwnBinding("ref")).toBe(true);
@@ -945,13 +1012,119 @@ describe("scope", () => {
       assignmentPattern.scope.push({ id: t.identifier("ref") });
       expect(program.toString()).toMatchInlineSnapshot(`
         "var ref;
-
         class C {
           m(a = f()) {}
-
         }"
       `);
       expect(program.scope.hasOwnBinding("ref")).toBe(true);
+    });
+  });
+
+  describe("rename", () => {
+    it(".parentPath after renaming variable in switch", () => {
+      const program = getPath(`
+        switch (x) {
+          case y:
+            let a;
+        }
+      `);
+      program.traverse({
+        VariableDeclaration(path) {
+          if (path.node.declarations[0].id.name !== "a") return;
+
+          expect(path.parentPath.type).toBe("SwitchCase");
+          path.scope.rename("a");
+          expect(path.parentPath.type).toBe("SwitchCase");
+        },
+      });
+    });
+
+    it(".shorthand after renaming `ObjectProperty`", () => {
+      const program = getPath(`
+         const { a } = b;
+         ({ a } = b);
+         c = { a };
+       `);
+      program.scope.rename("a");
+
+      const renamedPropertyMatcher = expect.objectContaining({
+        type: "ObjectProperty",
+        shorthand: false,
+        extra: expect.objectContaining({ shorthand: false }),
+        key: expect.objectContaining({ name: "a" }),
+        value: expect.objectContaining({
+          name: expect.not.stringMatching(/^a$/),
+        }),
+      });
+
+      const { body } = program.node;
+      expect(body[0].declarations[0].id.properties[0]).toStrictEqual(
+        renamedPropertyMatcher,
+      );
+      expect(body[1].expression.left.properties[0]).toStrictEqual(
+        renamedPropertyMatcher,
+      );
+      expect(body[2].expression.right.properties[0]).toStrictEqual(
+        renamedPropertyMatcher,
+      );
+
+      expect(String(program)).toMatchInlineSnapshot(`
+        "const {
+          a: _a
+        } = b;
+        ({
+          a: _a
+        } = b);
+        c = {
+          a: _a
+        };"
+      `);
+    });
+
+    it(".shorthand after renaming `ObjectProperty` - shadowed", () => {
+      const program = getPath(`
+         const a = 1;
+         {
+          const { b } = 2;
+          ({ b } = 3);
+          (_ = { b });
+        }
+       `);
+      program.scope.rename("a", "b");
+
+      const originalPropertyMatcher = expect.objectContaining({
+        type: "ObjectProperty",
+        shorthand: true,
+        extra: expect.objectContaining({ shorthand: true }),
+        key: expect.objectContaining({ name: "b" }),
+        value: expect.objectContaining({ name: "b" }),
+      });
+
+      const { body } = program.node;
+      expect(body[1].body[0].declarations[0].id.properties[0]).toStrictEqual(
+        originalPropertyMatcher,
+      );
+      expect(body[1].body[1].expression.left.properties[0]).toStrictEqual(
+        originalPropertyMatcher,
+      );
+      expect(body[1].body[2].expression.right.properties[0]).toStrictEqual(
+        originalPropertyMatcher,
+      );
+
+      expect(String(program)).toMatchInlineSnapshot(`
+        "const b = 1;
+        {
+          const {
+            b
+          } = 2;
+          ({
+            b
+          } = 3);
+          _ = {
+            b
+          };
+        }"
+      `);
     });
   });
 });

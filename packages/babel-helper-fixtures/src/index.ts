@@ -4,7 +4,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
 import type { InputOptions } from "@babel/core";
-import type { EncodedSourceMap, Mapping } from "@jridgewell/gen-mapping";
+import type { EncodedSourceMap } from "@jridgewell/gen-mapping";
 
 const require = createRequire(import.meta.url);
 
@@ -39,7 +39,6 @@ export interface Test {
   actual: TestFile;
   expect: TestFile;
   inputSourceMap?: EncodedSourceMap;
-  sourceMappings?: Mapping[];
   sourceMap: string;
   sourceMapFile: TestFile;
   validateLogs: boolean;
@@ -94,12 +93,14 @@ function shouldIgnore(name: string, ignore?: Array<string>) {
   );
 }
 
-const EXTENSIONS = [".js", ".mjs", ".ts", ".tsx", ".cts", ".mts"];
+const EXTENSIONS = [".js", ".mjs", ".ts", ".tsx", ".cts", ".mts", ".vue"];
+const JSON_AND_EXTENSIONS = [".json", ...EXTENSIONS];
 
 function findFile(filepath: string, allowJSON?: boolean) {
   const matches = [];
+  const extensions = allowJSON ? JSON_AND_EXTENSIONS : EXTENSIONS;
 
-  for (const ext of EXTENSIONS.concat(allowJSON ? ".json" : [])) {
+  for (const ext of extensions) {
     const name = filepath + ext;
 
     if (fs.existsSync(name)) matches.push(name);
@@ -194,7 +195,6 @@ function pushTask(
       code: readFile(expectLoc),
       filename: expectLocAlias,
     },
-    sourceMappings: undefined,
     sourceMap: undefined,
     sourceMapFile: undefined,
     inputSourceMap: undefined,
@@ -249,20 +249,15 @@ function pushTask(
 
   suite.tests.push(test);
 
-  const sourceMappingsLoc = taskDir + "/source-mappings.json";
-  if (fs.existsSync(sourceMappingsLoc)) {
-    test.sourceMappings = JSON.parse(readFile(sourceMappingsLoc));
-  }
-
   const sourceMapLoc = taskDir + "/source-map.json";
   if (fs.existsSync(sourceMapLoc)) {
     test.sourceMap = JSON.parse(readFile(sourceMapLoc));
-    test.sourceMapFile = {
-      loc: sourceMapLoc,
-      code: test.sourceMap,
-      filename: "",
-    };
   }
+  test.sourceMapFile = {
+    loc: sourceMapLoc,
+    code: test.sourceMap,
+    filename: "",
+  };
 
   const inputMapLoc = taskDir + "/input-source-map.json";
   if (fs.existsSync(inputMapLoc)) {
@@ -273,12 +268,6 @@ function pushTask(
     if (test.expect.code) {
       throw new Error(
         "Test cannot throw and also return output code: " + expectLoc,
-      );
-    }
-    if (test.sourceMappings) {
-      throw new Error(
-        "Test cannot throw and also return sourcemappings: " +
-          sourceMappingsLoc,
       );
     }
     if (test.sourceMap) {
@@ -366,13 +355,24 @@ function wrapPackagesArray(
  *
  * @export
  * @param {{}} options the imported options.json
- * @param {string} optionsDir the direcotry where options.json is placed
+ * @param {string} optionsDir the directory where options.json is placed
  * @returns {{}} options whose plugins/presets are resolved
  */
 export function resolveOptionPluginOrPreset(
   options: any,
   optionsDir: string,
 ): {} {
+  if (options.overrides) {
+    for (const subOption of options.overrides) {
+      resolveOptionPluginOrPreset(subOption, optionsDir);
+    }
+  }
+  if (options.env) {
+    for (const envName in options.env) {
+      if (!{}.hasOwnProperty.call(options.env, envName)) continue;
+      resolveOptionPluginOrPreset(options.env[envName], optionsDir);
+    }
+  }
   if (options.plugins) {
     options.plugins = wrapPackagesArray("plugin", options.plugins, optionsDir);
   }

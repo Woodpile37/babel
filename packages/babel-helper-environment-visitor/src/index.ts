@@ -1,14 +1,20 @@
 import type { NodePath, Visitor } from "@babel/traverse";
 import type * as t from "@babel/types";
 
-// TODO (Babel 8): Don't export this function.
-export function skipAllButComputedKey(
-  path: NodePath<t.Method | t.ClassProperty>,
-) {
-  path.skip();
-  if (path.node.computed) {
-    // requeue the computed key
-    path.context.maybeQueue(path.get("key"));
+if (!process.env.BABEL_8_BREAKING) {
+  if (!USE_ESM) {
+    if (!IS_STANDALONE) {
+      // eslint-disable-next-line no-restricted-globals
+      exports.skipAllButComputedKey = function skipAllButComputedKey(
+        path: NodePath<t.Method | t.ClassProperty>,
+      ) {
+        path.skip();
+        if (path.node.computed) {
+          // requeue the computed key
+          path.context.maybeQueue(path.get("key"));
+        }
+      };
+    }
   }
 }
 

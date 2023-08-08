@@ -1,5 +1,6 @@
-const fs = require("fs");
 const semver = require("semver");
+const shell = require("shelljs");
+
 const nodeVersion = process.versions.node;
 const supportsESMAndJestLightRunner = semver.satisfies(
   nodeVersion,
@@ -9,29 +10,43 @@ const supportsESMAndJestLightRunner = semver.satisfies(
 );
 const isPublishBundle = process.env.IS_PUBLISH;
 
-let LIB_USE_ESM = false;
-try {
-  const type = fs.readFileSync(`${__dirname}/.module-type`, "utf-8").trim();
-  LIB_USE_ESM = type === "module";
-} catch (_) {}
+if (!supportsESMAndJestLightRunner) {
+  //Avoid source maps from breaking stack tests.
+  shell.rm("-rf", "packages/babel-core/lib/**/*.js.map");
+}
 
 module.exports = {
   runner: supportsESMAndJestLightRunner ? "jest-light-runner" : "jest-runner",
 
+  snapshotFormat: { escapeString: true, printBasicPrototype: true },
+  coverageProvider: "v8",
+  coverageReporters: ["lcov", "text"],
   collectCoverageFrom: [
-    "packages/*/src/**/*.{js,mjs,ts}",
-    "codemods/*/src/**/*.{js,mjs,ts}",
-    "eslint/*/src/**/*.{js,mjs,ts}",
+    "packages/*/lib/**/*.{js,cjs,mjs,ts}",
+    "codemods/*/lib/**/*.{js,cjs,mjs,ts}",
+    "eslint/*/lib/**/*.{js,cjs,mjs,ts}",
   ],
-  // The eslint/* packages use ESLint v6, which has dropped support for Node v6.
+  coveragePathIgnorePatterns: [
+    "/node_modules/",
+    "<rootDir>/packages/babel-standalone/",
+    "/test/(fixtures|tmp|__data__)/",
+    ".*\\.d\\.ts",
+    "<rootDir>/packages/babel-standalone/.*",
+    "<rootDir>/packages/babel-types/.*/generated/.*",
+    "<rootDir>/packages/babel-helpers/.*/helpers/.*",
+    "<rootDir>/packages/babel-core/.*/vendor/.*",
+  ],
+
+  // The eslint/* packages is tested against ESLint v8, which has dropped support for Node v10.
   // TODO: Remove this process.version check in Babel 8.
   testRegex: `./(packages|codemods${
-    semver.satisfies(nodeVersion, "<10") ? "" : "|eslint"
+    semver.satisfies(nodeVersion, "<12") ? "" : "|eslint"
   })/[^/]+/test/.+\\.m?js$`,
   testPathIgnorePatterns: [
     "/node_modules/",
     "/test/fixtures/",
     "/test/debug-fixtures/",
+    "/babel-preset-env/test/regressions/",
     "/babel-parser/test/expressions/",
     "/test/tmp/",
     "/test/__data__/",
@@ -43,9 +58,8 @@ module.exports = {
     // Some tests require internal files of bundled packages, which are not available
     // in production builds. They are marked using the .skip-bundled.js extension.
     ...(isPublishBundle ? ["\\.skip-bundled\\.js$"] : []),
-    ...(LIB_USE_ESM ? ["/babel-helpers/"] : []),
     // Ignore @babel/standalone test in coverage testing because it is not built
-    ...(process.env.TEST_TYPE === "cov"
+    ...(process.env.BABEL_COVERAGE === "true"
       ? ["<rootDir>/packages/babel-standalone/"]
       : []),
   ],
@@ -56,18 +70,13 @@ module.exports = {
     "/test/(fixtures|tmp|__data__)/",
     "<rootDir>/(packages|codemods|eslint)/[^/]+/lib/",
   ],
-  coveragePathIgnorePatterns: [
-    "/node_modules/",
-    "<rootDir>/packages/babel-standalone/babel(\\.min)?\\.js",
-    "/test/(fixtures|tmp|__data__)/",
-  ],
   modulePathIgnorePatterns: [
     "/test/fixtures/",
     "/test/tmp/",
     "/test/__data__/",
     "<rootDir>/build/",
   ],
-  // We don't need module name mappers here as depedencies of workspace
+  // We don't need module name mappers here as dependencies of workspace
   // package should be declared explicitly in the package.json
   // Yarn will generate correct file links so that Jest can resolve correctly
   moduleNameMapper: null,

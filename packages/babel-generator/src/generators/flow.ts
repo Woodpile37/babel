@@ -11,7 +11,7 @@ export function ArrayTypeAnnotation(
   this: Printer,
   node: t.ArrayTypeAnnotation,
 ) {
-  this.print(node.elementType, node);
+  this.print(node.elementType, node, true);
   this.token("[");
   this.token("]");
 }
@@ -299,7 +299,7 @@ export function ExistsTypeAnnotation(this: Printer) {
 export function FunctionTypeAnnotation(
   this: Printer,
   node: t.FunctionTypeAnnotation,
-  parent: t.Node | void,
+  parent?: t.Node,
 ) {
   this.print(node.typeParameters, node);
   this.token("(");
@@ -329,11 +329,14 @@ export function FunctionTypeAnnotation(
   this.token(")");
 
   // this node type is overloaded, not sure why but it makes it EXTREMELY annoying
+
+  const type = parent?.type;
   if (
-    parent &&
-    (parent.type === "ObjectTypeCallProperty" ||
-      parent.type === "DeclareFunction" ||
-      (parent.type === "ObjectTypeProperty" && parent.method))
+    type != null &&
+    (type === "ObjectTypeCallProperty" ||
+      type === "ObjectTypeInternalSlot" ||
+      type === "DeclareFunction" ||
+      (type === "ObjectTypeProperty" && parent.method))
   ) {
     this.token(":");
   } else {
@@ -357,7 +360,7 @@ export function FunctionTypeParam(this: Printer, node: t.FunctionTypeParam) {
 
 export function InterfaceExtends(this: Printer, node: t.InterfaceExtends) {
   this.print(node.id, node);
-  this.print(node.typeParameters, node);
+  this.print(node.typeParameters, node, true);
 }
 
 export {
@@ -377,17 +380,19 @@ export function _interfaceish(
     this.space();
     this.printList(node.extends, node);
   }
-  if (node.mixins && node.mixins.length) {
-    this.space();
-    this.word("mixins");
-    this.space();
-    this.printList(node.mixins, node);
-  }
-  if (node.implements && node.implements.length) {
-    this.space();
-    this.word("implements");
-    this.space();
-    this.printList(node.implements, node);
+  if (node.type === "DeclareClass") {
+    if (node.mixins?.length) {
+      this.space();
+      this.word("mixins");
+      this.space();
+      this.printList(node.mixins, node);
+    }
+    if (node.implements?.length) {
+      this.space();
+      this.word("implements");
+      this.space();
+      this.printList(node.implements, node);
+    }
   }
   this.space();
   this.print(node.body, node);
@@ -403,10 +408,11 @@ export function _variance(
     | t.ClassPrivateProperty
     | t.ClassAccessorProperty,
 ) {
-  if (node.variance) {
-    if (node.variance.kind === "plus") {
+  const kind = node.variance?.kind;
+  if (kind != null) {
+    if (kind === "plus") {
       this.token("+");
-    } else if (node.variance.kind === "minus") {
+    } else if (kind === "minus") {
       this.token("-");
     }
   }
@@ -432,7 +438,7 @@ export function InterfaceTypeAnnotation(
   node: t.InterfaceTypeAnnotation,
 ) {
   this.word("interface");
-  if (node.extends && node.extends.length) {
+  if (node.extends?.length) {
     this.space();
     this.word("extends");
     this.space();
@@ -595,6 +601,8 @@ export function ObjectTypeAnnotation(
   ];
 
   if (props.length) {
+    this.newline();
+
     this.space();
 
     this.printJoin(props, node, {
@@ -758,7 +766,7 @@ export function VoidTypeAnnotation(this: Printer) {
 }
 
 export function IndexedAccessType(this: Printer, node: t.IndexedAccessType) {
-  this.print(node.objectType, node);
+  this.print(node.objectType, node, true);
   this.token("[");
   this.print(node.indexType, node);
   this.token("]");

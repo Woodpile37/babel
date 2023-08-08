@@ -5,11 +5,11 @@ export default function generateAsserts() {
  * This file is auto-generated! Do not modify it directly.
  * To re-generate run 'make build'
  */
-import * as t from "@babel/types";
-import NodePath from "../index";
+import type * as t from "@babel/types";
+import type NodePath from "../index";
 
 
-export interface NodePathAssetions {`;
+export interface NodePathAssertions {`;
 
   for (const type of [...t.TYPES].sort()) {
     output += `

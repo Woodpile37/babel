@@ -105,14 +105,18 @@ export function ensureBlock(
   return this.node;
 }
 
-/**
- * Keeping this for backward-compatibility. You should use arrowFunctionToExpression() for >=7.x.
- */
-// TODO(Babel 8): Remove this
-export function arrowFunctionToShadowed(this: NodePath) {
-  if (!this.isArrowFunctionExpression()) return;
+if (!process.env.BABEL_8_BREAKING) {
+  if (!USE_ESM) {
+    /**
+     * Keeping this for backward-compatibility. You should use arrowFunctionToExpression() for >=7.x.
+     */
+    // eslint-disable-next-line no-restricted-globals
+    exports.arrowFunctionToShadowed = function (this: NodePath) {
+      if (!this.isArrowFunctionExpression()) return;
 
-  this.arrowFunctionToExpression();
+      this.arrowFunctionToExpression();
+    };
+  }
 }
 
 /**
@@ -135,6 +139,13 @@ export function unwrapFunctionEnvironment(this: NodePath) {
   hoistFunctionEnvironment(this);
 }
 
+function setType<N extends t.Node, T extends N["type"]>(
+  path: NodePath<N>,
+  type: T,
+): asserts path is NodePath<Extract<N, { type: T }>> {
+  path.node.type = type;
+}
+
 /**
  * Convert a given arrow function into a normal ES5 function expression.
  */
@@ -142,16 +153,19 @@ export function arrowFunctionToExpression(
   this: NodePath<t.ArrowFunctionExpression>,
   {
     allowInsertArrow = true,
-    /** @deprecated Use `noNewArrows` instead */
-    specCompliant = false,
-    // TODO(Babel 8): Consider defaulting to `false` for spec compliancy
-    noNewArrows = !specCompliant,
+    allowInsertArrowWithRest = allowInsertArrow,
+    noNewArrows = process.env.BABEL_8_BREAKING
+      ? // TODO(Babel 8): Consider defaulting to `false` for spec compliancy
+        true
+      : !arguments[0]?.specCompliant,
   }: {
     allowInsertArrow?: boolean | void;
-    specCompliant?: boolean | void;
+    allowInsertArrowWithRest?: boolean | void;
     noNewArrows?: boolean;
   } = {},
-) {
+): NodePath<
+  Exclude<t.Function, t.Method | t.ArrowFunctionExpression> | t.CallExpression
+> {
   if (!this.isArrowFunctionExpression()) {
     throw (this as NodePath).buildCodeFrameError(
       "Cannot convert non-arrow function to a function expression.",
@@ -162,11 +176,13 @@ export function arrowFunctionToExpression(
     this,
     noNewArrows,
     allowInsertArrow,
+    allowInsertArrowWithRest,
   );
 
   // @ts-expect-error TS requires explicit fn type annotation
   fn.ensureBlock();
-  fn.node.type = "FunctionExpression";
+  setType(fn, "FunctionExpression");
+
   if (!noNewArrows) {
     const checkBinding = thisBinding
       ? null
@@ -178,7 +194,7 @@ export function arrowFunctionToExpression(
       });
     }
 
-    (fn.get("body") as NodePath<t.BlockStatement>).unshiftContainer(
+    fn.get("body").unshiftContainer(
       "body",
       expressionStatement(
         callExpression(this.hub.addHelper("newArrowCheck"), [
@@ -200,7 +216,11 @@ export function arrowFunctionToExpression(
         [checkBinding ? identifier(checkBinding.name) : thisExpression()],
       ),
     );
+
+    return fn.get("callee.object");
   }
+
+  return fn;
 }
 
 const getSuperCallsVisitor = mergeVisitors<{
@@ -228,6 +248,7 @@ function hoistFunctionEnvironment(
   // TODO(Babel 8): Consider defaulting to `false` for spec compliancy
   noNewArrows: boolean | void = true,
   allowInsertArrow: boolean | void = true,
+  allowInsertArrowWithRest: boolean | void = true,
 ): { thisBinding: string; fnPath: NodePath<t.Function> } {
   let arrowParent;
   let thisEnvFn: NodePath<t.Function> = fnPath.findParent(p => {
@@ -274,7 +295,17 @@ function hoistFunctionEnvironment(
   if (inConstructor && superCalls.length > 0) {
     if (!allowInsertArrow) {
       throw superCalls[0].buildCodeFrameError(
-        "Unable to handle nested super() usage in arrow",
+        "When using '@babel/plugin-transform-arrow-functions', " +
+          "it's not possible to compile `super()` in an arrow function without compiling classes.\n" +
+          "Please add '@babel/plugin-transform-classes' to your Babel configuration.",
+      );
+    }
+    if (!allowInsertArrowWithRest) {
+      // preset-env with target `since 2017` enables `transform-parameters` without `transform-classes`.
+      throw superCalls[0].buildCodeFrameError(
+        "When using '@babel/plugin-transform-parameters', " +
+          "it's not possible to compile `super()` in an arrow function with default or rest parameters without compiling classes.\n" +
+          "Please add '@babel/plugin-transform-classes' to your Babel configuration.",
       );
     }
     const allSuperCalls: NodePath<t.CallExpression>[] = [];
@@ -333,7 +364,9 @@ function hoistFunctionEnvironment(
   if (superProps.length > 0) {
     if (!allowInsertArrow) {
       throw superProps[0].buildCodeFrameError(
-        "Unable to handle nested super.prop usage",
+        "When using '@babel/plugin-transform-arrow-functions', " +
+          "it's not possible to compile `super.prop` in an arrow function without compiling classes.\n" +
+          "Please add '@babel/plugin-transform-classes' to your Babel configuration.",
       );
     }
 
@@ -355,6 +388,9 @@ function hoistFunctionEnvironment(
       });
       const isCall = superParentPath.isCallExpression({
         callee: superProp.node,
+      });
+      const isTaggedTemplate = superParentPath.isTaggedTemplateExpression({
+        tag: superProp.node,
       });
       const superBinding = getSuperPropBinding(thisEnvFn, isAssignment, key);
 
@@ -381,6 +417,16 @@ function hoistFunctionEnvironment(
       } else if (isAssignment) {
         // Replace not only the super.prop, but the whole assignment
         superParentPath.replaceWith(call);
+      } else if (isTaggedTemplate) {
+        superProp.replaceWith(
+          callExpression(memberExpression(call, identifier("bind"), false), [
+            thisExpression(),
+          ]),
+        );
+
+        thisPaths.push(
+          superProp.get("arguments.0") as NodePath<t.ThisExpression>,
+        );
       } else {
         superProp.replaceWith(call);
       }
@@ -501,7 +547,7 @@ function standardizeSuperProperty(
         logicalExpression(
           op,
           assignmentPath.node.left as t.MemberExpression,
-          assignmentPath.node.right as t.Expression,
+          assignmentPath.node.right,
         ),
       );
     } else {

@@ -64,7 +64,6 @@ function normalizeOptions(
     indent: {
       adjustMultilineComment: true,
       style: "  ",
-      base: 0,
     },
     jsescOption: {
       quotes: "double",
@@ -74,11 +73,12 @@ function normalizeOptions(
     },
     recordAndTupleSyntaxType: opts.recordAndTupleSyntaxType,
     topicToken: opts.topicToken,
+    importAttributesKeyword: opts.importAttributesKeyword,
   };
 
   if (!process.env.BABEL_8_BREAKING) {
-    format.decoratorsBeforeExport = !!opts.decoratorsBeforeExport;
-    format.jsonCompatibleStrings = opts.jsonCompatibleStrings;
+    format.decoratorsBeforeExport = opts.decoratorsBeforeExport;
+    format.jsescOption.json = opts.jsonCompatibleStrings;
   }
 
   if (format.minified) {
@@ -96,7 +96,7 @@ function normalizeOptions(
   }
 
   if (format.compact === "auto") {
-    format.compact = code.length > 500_000; // 500KB
+    format.compact = typeof code === "string" && code.length > 500_000; // 500KB
 
     if (format.compact) {
       console.error(
@@ -108,6 +108,16 @@ function normalizeOptions(
 
   if (format.compact) {
     format.indent.adjustMultilineComment = false;
+  }
+
+  const { auxiliaryCommentBefore, auxiliaryCommentAfter, shouldPrintComment } =
+    format;
+
+  if (auxiliaryCommentBefore && !shouldPrintComment(auxiliaryCommentBefore)) {
+    format.auxiliaryCommentBefore = undefined;
+  }
+  if (auxiliaryCommentAfter && !shouldPrintComment(auxiliaryCommentAfter)) {
+    format.auxiliaryCommentAfter = undefined;
   }
 
   return format;
@@ -126,7 +136,7 @@ export interface GeneratorOptions {
 
   /**
    * Function that takes a comment (as a string) and returns true if the comment should be included in the output.
-   * By default, comments are included if `opts.comments` is `true` or if `opts.minifed` is `false` and the comment
+   * By default, comments are included if `opts.comments` is `true` or if `opts.minified` is `false` and the comment
    * contains `@preserve` or `@license`.
    */
   shouldPrintComment?(comment: string): boolean;
@@ -173,6 +183,8 @@ export interface GeneratorOptions {
    */
   sourceMaps?: boolean;
 
+  inputSourceMap?: any;
+
   /**
    * A root for all relative URLs in the source map.
    */
@@ -191,8 +203,9 @@ export interface GeneratorOptions {
   jsonCompatibleStrings?: boolean;
 
   /**
-   * Set to true to enable support for experimental decorators syntax before module exports.
-   * Defaults to `false`.
+   * Set to true to enable support for experimental decorators syntax before
+   * module exports. If not specified, decorators will be printed in the same
+   * position as they were in the input source code.
    * @deprecated Removed in Babel 8
    */
   decoratorsBeforeExport?: boolean;
@@ -206,11 +219,20 @@ export interface GeneratorOptions {
    * For use with the recordAndTuple token.
    */
   recordAndTupleSyntaxType?: RecordAndTuplePluginOptions["syntaxType"];
+
   /**
    * For use with the Hack-style pipe operator.
    * Changes what token is used for pipe bodies’ topic references.
    */
   topicToken?: PipelineOperatorPluginOptions["topicToken"];
+
+  /**
+   * The import attributes syntax style:
+   * - "with"        : `import { a } from "b" with { type: "json" };`
+   * - "assert"      : `import { a } from "b" assert { type: "json" };`
+   * - "with-legacy" : `import { a } from "b" with type: "json";`
+   */
+  importAttributesKeyword?: "with" | "assert" | "with-legacy";
 }
 
 export interface GeneratorResult {

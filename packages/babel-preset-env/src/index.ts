@@ -16,8 +16,8 @@ import {
 import {
   plugins as pluginsList,
   pluginsBugfixes as pluginsBugfixesList,
+  overlappingPlugins,
 } from "./plugins-compat-data";
-import overlappingPlugins from "@babel/compat-data/overlapping-plugins";
 
 import removeRegeneratorEntryPlugin from "./polyfills/regenerator";
 import legacyBabelPolyfillPlugin from "./polyfills/babel-polyfill";
@@ -57,7 +57,7 @@ function filterStageFromList(
 ) {
   return Object.keys(list).reduce((result, item) => {
     if (!stageList.has(item)) {
-      // @ts-expect-error
+      // @ts-expect-error todo: refine result types
       result[item] = list[item];
     }
 
@@ -146,7 +146,7 @@ export const getModulesPluginNames = ({
       shouldTransformESM &&
       modules !== "umd"
     ) {
-      modulesPluginNames.push("proposal-dynamic-import");
+      modulesPluginNames.push("transform-dynamic-import");
     } else {
       if (shouldTransformDynamicImport) {
         console.warn(
@@ -161,7 +161,7 @@ export const getModulesPluginNames = ({
   }
 
   if (shouldTransformExportNamespaceFrom) {
-    modulesPluginNames.push("proposal-export-namespace-from");
+    modulesPluginNames.push("transform-export-namespace-from");
   } else {
     modulesPluginNames.push("syntax-export-namespace-from");
   }
@@ -169,6 +169,9 @@ export const getModulesPluginNames = ({
   if (shouldParseTopLevelAwait) {
     modulesPluginNames.push("syntax-top-level-await");
   }
+
+  // Enable import meta for @babel/core < 7.10
+  modulesPluginNames.push("syntax-import-meta");
 
   return modulesPluginNames;
 };
@@ -205,6 +208,9 @@ export const getPolyfillPlugins = ({
       proposals,
       shippedProposals,
       debug,
+      "#__secret_key__@babel/preset-env__compatibility": {
+        noRuntimeName: true,
+      },
     };
 
     if (corejs) {
@@ -362,7 +368,7 @@ option \`forceAllTransforms: true\` instead.
   const shouldSkipExportNamespaceFrom =
     (modules === "auto" && api.caller?.(supportsExportNamespaceFrom)) ||
     (modules === false &&
-      !isRequired("proposal-export-namespace-from", transformTargets, {
+      !isRequired("transform-export-namespace-from", transformTargets, {
         compatData,
         includes: include.plugins,
         excludes: exclude.plugins,
@@ -389,11 +395,11 @@ option \`forceAllTransforms: true\` instead.
     getOptionSpecificExcludesFor({ loose }),
     pluginSyntaxMap,
   );
-  removeUnnecessaryItems(pluginNames, overlappingPlugins);
-  removeUnsupportedItems(pluginNames, api.version);
   if (shippedProposals) {
     addProposalSyntaxPlugins(pluginNames, proposalSyntaxPlugins);
   }
+  removeUnsupportedItems(pluginNames, api.version);
+  removeUnnecessaryItems(pluginNames, overlappingPlugins);
 
   const polyfillPlugins = getPolyfillPlugins({
     useBuiltIns,
@@ -411,9 +417,9 @@ option \`forceAllTransforms: true\` instead.
   const plugins = Array.from(pluginNames)
     .map(pluginName => {
       if (
-        pluginName === "proposal-class-properties" ||
-        pluginName === "proposal-private-methods" ||
-        pluginName === "proposal-private-property-in-object"
+        pluginName === "transform-class-properties" ||
+        pluginName === "transform-private-methods" ||
+        pluginName === "transform-private-property-in-object"
       ) {
         return [
           getPlugin(pluginName),
@@ -423,6 +429,12 @@ option \`forceAllTransforms: true\` instead.
               : "#__internal__@babel/preset-env__prefer-false-but-true-is-ok-if-it-prevents-an-error",
           },
         ];
+      }
+      if (pluginName === "syntax-import-attributes") {
+        // For backward compatibility with the import-assertions plugin, we
+        // allow the deprecated `assert` keyword.
+        // TODO(Babel 8): Revisit this.
+        return [getPlugin(pluginName), { deprecatedAssertSyntax: true }];
       }
       return [
         getPlugin(pluginName),

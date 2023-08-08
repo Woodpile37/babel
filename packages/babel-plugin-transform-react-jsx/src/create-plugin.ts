@@ -1,6 +1,6 @@
 import jsx from "@babel/plugin-syntax-jsx";
 import { declare } from "@babel/helper-plugin-utils";
-import { types as t } from "@babel/core";
+import { template, types as t } from "@babel/core";
 import type { PluginPass } from "@babel/core";
 import type { NodePath, Scope, Visitor } from "@babel/traverse";
 import { addNamed, addNamespace, isModule } from "@babel/helper-module-imports";
@@ -39,6 +39,15 @@ const get = (pass: PluginPass, name: string) =>
 const set = (pass: PluginPass, name: string, v: any) =>
   pass.set(`@babel/plugin-react-jsx/${name}`, v);
 
+function hasProto(node: t.ObjectExpression) {
+  return node.properties.some(
+    value =>
+      t.isObjectProperty(value, { computed: false, shorthand: false }) &&
+      (t.isIdentifier(value.key, { name: "__proto__" }) ||
+        t.isStringLiteral(value.key, { value: "__proto__" })),
+  );
+}
+
 export interface Options {
   filter?: (node: t.Node, pass: PluginPass) => boolean;
   importSource?: string;
@@ -63,7 +72,6 @@ export default function createPlugin({
 
       throwIfNamespace = true,
 
-      // TODO (Babel 8): It should throw if this option is used with the automatic runtime
       filter,
 
       runtime: RUNTIME_DEFAULT = process.env.BABEL_8_BREAKING
@@ -93,9 +101,15 @@ export default function createPlugin({
 {
   "plugins": [
     "@babel/plugin-transform-react-jsx"
-    ["@babel/plugin-proposal-object-rest-spread", { "loose": true, "useBuiltIns": ${useBuiltInsFormatted} }]
+    ["@babel/plugin-transform-object-rest-spread", { "loose": true, "useBuiltIns": ${useBuiltInsFormatted} }]
   ]
 }`,
+        );
+      }
+
+      if (filter != null && RUNTIME_DEFAULT === "automatic") {
+        throw new Error(
+          '@babel/plugin-transform-react-jsx: "filter" option can not be used with automatic runtime. If you are upgrading from Babel 7, please specify `runtime: "classic"`.',
         );
       }
     } else {
@@ -253,7 +267,7 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
             }
           },
 
-          // TODO (Babel 8): Decide if this should be removed or brought back.
+          // TODO(Babel 8): Decide if this should be removed or brought back.
           // see: https://github.com/babel/babel/pull/12253#discussion_r513086528
           //
           // exit(path, state) {
@@ -269,6 +283,19 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
           //     );
           //   }
           // },
+        },
+
+        JSXFragment: {
+          exit(path, file) {
+            let callExpr;
+            if (get(file, "runtime") === "classic") {
+              callExpr = buildCreateElementFragmentCall(path, file);
+            } else {
+              callExpr = buildJSXFragmentCall(path, file);
+            }
+
+            path.replaceWith(t.inherits(callExpr, path.node));
+          },
         },
 
         JSXElement: {
@@ -287,25 +314,12 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
           },
         },
 
-        JSXFragment: {
-          exit(path, file) {
-            let callExpr;
-            if (get(file, "runtime") === "classic") {
-              callExpr = buildCreateElementFragmentCall(path, file);
-            } else {
-              callExpr = buildJSXFragmentCall(path, file);
-            }
-
-            path.replaceWith(t.inherits(callExpr, path.node));
-          },
-        },
-
         JSXAttribute(path) {
           if (t.isJSXElement(path.node.value)) {
             path.node.value = t.jsxExpressionContainer(path.node.value);
           }
         },
-      } as Visitor<PluginPass>,
+      },
     };
 
     // Returns whether the class has specified a superclass.
@@ -332,7 +346,7 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
           return !isDerivedClass(path.parentPath.parentPath as NodePath<Class>);
         }
         if (path.isTSModuleBlock()) {
-          // If the closeset parent is a TS Module block, `this` will not be allowed.
+          // If the closest parent is a TS Module block, `this` will not be allowed.
           return false;
         }
       } while ((scope = scope.parent));
@@ -383,8 +397,9 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
         if (node.name === "this" && t.isReferenced(node, parent)) {
           return t.thisExpression();
         } else if (t.isValidIdentifier(node.name, false)) {
-          // @ts-expect-error todo(flow->ts)
+          // @ts-expect-error cast AST type to Identifier
           node.type = "Identifier";
+          return node as unknown as t.Identifier;
         } else {
           return t.stringLiteral(node.name);
         }
@@ -401,7 +416,7 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
         return t.stringLiteral(`${node.namespace.name}:${node.name.name}`);
       }
 
-      // @ts-expect-error
+      // todo: this branch should be unreachable
       return node;
     }
 
@@ -422,7 +437,7 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
       if (t.isJSXSpreadAttribute(attribute.node)) {
         const arg = attribute.node.argument;
         // Collect properties into props array if spreading object expression
-        if (t.isObjectExpression(arg)) {
+        if (t.isObjectExpression(arg) && !hasProto(arg)) {
           array.push(...arg.properties);
         } else {
           array.push(t.spreadElement(arg));
@@ -559,9 +574,13 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
         args.push(
           extracted.key ?? path.scope.buildUndefinedNode(),
           t.booleanLiteral(children.length > 1),
-          extracted.__source ?? path.scope.buildUndefinedNode(),
-          extracted.__self ?? path.scope.buildUndefinedNode(),
         );
+        if (extracted.__source) {
+          args.push(extracted.__source);
+          if (extracted.__self) args.push(extracted.__self);
+        } else if (extracted.__self) {
+          args.push(path.scope.buildUndefinedNode(), extracted.__self);
+        }
       } else if (extracted.key !== undefined) {
         args.push(extracted.key);
       }
@@ -718,7 +737,17 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
           }
 
           if (objs.length === 1) {
-            return objs[0];
+            if (
+              !(
+                t.isSpreadElement(props[0]) &&
+                // If an object expression is spread element's argument
+                // it is very likely to contain __proto__ and we should stop
+                // optimizing spread element
+                t.isObjectExpression(props[0].argument)
+              )
+            ) {
+              return objs[0];
+            }
           }
 
           // looks like we have multiple objects
@@ -739,10 +768,11 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
       const found = Object.create(null);
 
       for (const attr of attribs) {
+        const { node } = attr;
         const name =
-          t.isJSXAttribute(attr) &&
-          t.isJSXIdentifier(attr.name) &&
-          attr.name.name;
+          t.isJSXAttribute(node) &&
+          t.isJSXIdentifier(node.name) &&
+          node.name.name;
 
         if (
           runtime === "automatic" &&
@@ -755,7 +785,12 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
         accumulateAttribute(props, attr);
       }
 
-      return props.length === 1 && t.isSpreadElement(props[0])
+      return props.length === 1 &&
+        t.isSpreadElement(props[0]) &&
+        // If an object expression is spread element's argument
+        // it is very likely to contain __proto__ and we should stop
+        // optimizing spread element
+        !t.isObjectExpression(props[0].argument)
         ? props[0].argument
         : props.length > 0
         ? t.objectExpression(props)
@@ -819,7 +854,7 @@ function toMemberExpression(id: string): Identifier | MemberExpression {
       .split(".")
       .map(name => t.identifier(name))
       // @ts-expect-error - The Array#reduce does not have a signature
-      // where the type of initialial value differs from callback return type
+      // where the type of initial value differs from callback return type
       .reduce((object, property) => t.memberExpression(object, property))
   );
 }
@@ -836,13 +871,10 @@ function makeSource(path: NodePath, state: PluginPass) {
     const { filename = "" } = state;
 
     const fileNameIdentifier = path.scope.generateUidIdentifier("_jsxFileName");
-    const scope = path.hub.getScope();
-    if (scope) {
-      scope.push({
-        id: fileNameIdentifier,
-        init: t.stringLiteral(filename),
-      });
-    }
+    path.scope.getProgramParent().push({
+      id: fileNameIdentifier,
+      init: t.stringLiteral(filename),
+    });
     // @ts-expect-error todo: avoid mutating PluginPass
     state.fileNameIdentifier = fileNameIdentifier;
   }
@@ -868,23 +900,11 @@ function makeTrace(
   const fileColumnLiteral =
     column0Based != null ? t.numericLiteral(column0Based + 1) : t.nullLiteral();
 
-  const fileNameProperty = t.objectProperty(
-    t.identifier("fileName"),
-    fileNameIdentifier,
-  );
-  const lineNumberProperty = t.objectProperty(
-    t.identifier("lineNumber"),
-    fileLineLiteral,
-  );
-  const columnNumberProperty = t.objectProperty(
-    t.identifier("columnNumber"),
-    fileColumnLiteral,
-  );
-  return t.objectExpression([
-    fileNameProperty,
-    lineNumberProperty,
-    columnNumberProperty,
-  ]);
+  return template.expression.ast`{
+    fileName: ${fileNameIdentifier},
+    lineNumber: ${fileLineLiteral},
+    columnNumber: ${fileColumnLiteral},
+  }`;
 }
 
 function sourceSelfError(path: NodePath, name: string) {

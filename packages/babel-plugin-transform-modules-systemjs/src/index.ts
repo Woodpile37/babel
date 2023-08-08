@@ -1,8 +1,11 @@
 import { declare } from "@babel/helper-plugin-utils";
 import hoistVariables from "@babel/helper-hoist-variables";
 import { template, types as t } from "@babel/core";
-import { getImportSource } from "babel-plugin-dynamic-import-node/utils";
-import { rewriteThis, getModuleName } from "@babel/helper-module-transforms";
+import {
+  buildDynamicImport,
+  getModuleName,
+  rewriteThis,
+} from "@babel/helper-module-transforms";
 import type { PluginOptions } from "@babel/helper-module-transforms";
 import { isIdentifierName } from "@babel/helper-validator-identifier";
 import type { NodePath, Scope, Visitor } from "@babel/traverse";
@@ -26,13 +29,13 @@ const buildExportAll = template.statement(`
 
 const MISSING_PLUGIN_WARNING = `\
 WARNING: Dynamic import() transformation must be enabled using the
-         @babel/plugin-proposal-dynamic-import plugin. Babel 8 will
+         @babel/plugin-transform-dynamic-import plugin. Babel 8 will
          no longer transform import() without using that plugin.
 `;
 
 const MISSING_PLUGIN_ERROR = `\
 ERROR: Dynamic import() transformation must be enabled using the
-       @babel/plugin-proposal-dynamic-import plugin. Babel 8
+       @babel/plugin-transform-dynamic-import plugin. Babel 8
        no longer transforms import() without using that plugin.
 `;
 
@@ -227,7 +230,7 @@ export default declare<PluginState>((api, options: Options) => {
       });
       if (isPostUpdateExpression) {
         node = t.binaryExpression(
-          // @ts-expect-error
+          // @ts-expect-error The operator of a post-update expression must be "++" | "--"
           node.operator[0],
           t.unaryExpression(
             "+",
@@ -271,12 +274,14 @@ export default declare<PluginState>((api, options: Options) => {
           }
 
           path.replaceWith(
-            t.callExpression(
-              t.memberExpression(
-                t.identifier(state.contextIdent),
-                t.identifier("import"),
+            buildDynamicImport(path.node, false, true, specifier =>
+              t.callExpression(
+                t.memberExpression(
+                  t.identifier(state.contextIdent),
+                  t.identifier("import"),
+                ),
+                [specifier],
               ),
-              [getImportSource(t, path.node)],
             ),
           );
         }
@@ -436,6 +441,7 @@ export default declare<PluginState>((api, options: Options) => {
                 }
                 removedPaths.push(path);
               } else {
+                // @ts-expect-error TSDeclareFunction is not expected here
                 path.replaceWith(buildExportCall("default", declar));
               }
             } else if (path.isExportNamedDeclaration()) {

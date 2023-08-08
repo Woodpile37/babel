@@ -1,4 +1,3 @@
-declare const PACKAGE_JSON: { name: string; version: string };
 export const version = PACKAGE_JSON.version;
 
 export { default as File } from "./transformation/file/file";
@@ -27,9 +26,10 @@ export {
   loadPartialConfigSync,
   loadPartialConfigAsync,
   loadOptions,
-  loadOptionsSync,
   loadOptionsAsync,
 } from "./config";
+import { loadOptionsSync } from "./config";
+export { loadOptionsSync };
 
 export type {
   CallerMetadata,
@@ -71,16 +71,31 @@ export const DEFAULT_EXTENSIONS = Object.freeze([
   ".cjs",
 ] as const);
 
-// For easier backward-compatibility, provide an API like the one we exposed in Babel 6.
-import { loadOptionsSync } from "./config";
-export class OptionManager {
-  init(opts: {}) {
-    return loadOptionsSync(opts);
+import Module from "module";
+import * as thisFile from "./index";
+if (USE_ESM) {
+  if (!IS_STANDALONE) {
+    // Pass this module to the CJS proxy, so that it can be synchronously accessed.
+    const cjsProxy = Module.createRequire(import.meta.url)("../cjs-proxy.cjs");
+    cjsProxy["__ initialize @babel/core cjs proxy __"] = thisFile;
   }
 }
 
-export function Plugin(alias: string) {
-  throw new Error(
-    `The (${alias}) Babel 5 plugin is being run with an unsupported Babel version.`,
-  );
+if (!process.env.BABEL_8_BREAKING) {
+  // For easier backward-compatibility, provide an API like the one we exposed in Babel 6.
+  if (!USE_ESM) {
+    // eslint-disable-next-line no-restricted-globals
+    exports.OptionManager = class OptionManager {
+      init(opts: {}) {
+        return loadOptionsSync(opts);
+      }
+    };
+
+    // eslint-disable-next-line no-restricted-globals
+    exports.Plugin = function Plugin(alias: string) {
+      throw new Error(
+        `The (${alias}) Babel 5 plugin is being run with an unsupported Babel version.`,
+      );
+    };
+  }
 }

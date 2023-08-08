@@ -300,6 +300,16 @@ describe("api", function () {
     expect(code).toBe(code2);
   });
 
+  it("transformFromAstSync should not cause infinite recursion with circular objects", () => {
+    const program = "const identifier = 1";
+    const node = parseSync(program);
+    node.program.body[0].extra = { parent: node.program };
+
+    expect(transformFromAstSync(node, program, {}).code).toBe(
+      "const identifier = 1;",
+    );
+  });
+
   it("transformFromAst should not mutate the AST", function () {
     const program = "const identifier = 1";
     const node = parseSync(program);
@@ -625,7 +635,6 @@ describe("api", function () {
         '    throw new TypeError("Cannot call a class as a function");',
         "  }",
         "}",
-        "",
         "let Foo = function Foo() {",
         "  _classCallCheck(this, Foo);",
         "};",
@@ -636,7 +645,7 @@ describe("api", function () {
 
     expect(
       originalPositionFor(consumer, {
-        line: 7,
+        line: 6,
         column: 4,
       }),
     ).toEqual({
@@ -658,19 +667,19 @@ describe("api", function () {
   });
 
   it("code option false", function () {
-    return transformAsync("foo('bar');", { code: false }).then(function (
-      result,
-    ) {
-      expect(result.code).toBeFalsy();
-    });
+    return transformAsync("foo('bar');", { code: false }).then(
+      function (result) {
+        expect(result.code).toBeFalsy();
+      },
+    );
   });
 
   it("ast option false", function () {
-    return transformAsync("foo('bar');", { ast: false }).then(function (
-      result,
-    ) {
-      expect(result.ast).toBeFalsy();
-    });
+    return transformAsync("foo('bar');", { ast: false }).then(
+      function (result) {
+        expect(result.ast).toBeFalsy();
+      },
+    );
   });
 
   it("ast option true", function () {
@@ -710,7 +719,7 @@ describe("api", function () {
       ],
     }).then(function (result) {
       expect(result.code).toBe(
-        "/*before*/\nstart;\n\n/*after*/\nclass Foo {}\n\n/*before*/\nend;\n\n/*after*/",
+        "/*before*/\nstart;\n/*after*/\nclass Foo {}\n/*before*/\nend;\n/*after*/",
       );
     });
   });
@@ -947,7 +956,9 @@ describe("api", function () {
             },
           ],
         }),
-      ).toThrowErrorMatchingInlineSnapshot(`"unknown: Unknown helper fooBar"`);
+      ).toThrowErrorMatchingInlineSnapshot(
+        `"unknown file: Unknown helper fooBar"`,
+      );
     });
   });
 });

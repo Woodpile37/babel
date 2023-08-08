@@ -102,6 +102,7 @@ function ForXStatement(this: Printer, node: t.ForXStatement) {
     this.word("await");
     this.space();
   }
+  this.noIndentInnerCommentsHere();
   this.token("(");
   this.print(node.left, node);
   this.space();
@@ -223,7 +224,7 @@ export function SwitchStatement(this: Printer, node: t.SwitchStatement) {
     },
   });
 
-  this.token("}");
+  this.rightBrace(node);
 }
 
 export function SwitchCase(this: Printer, node: t.SwitchCase) {
@@ -248,24 +249,6 @@ export function DebuggerStatement(this: Printer) {
   this.semicolon();
 }
 
-function variableDeclarationIndent(this: Printer) {
-  // "let " or "var " indentation.
-  this.token(",");
-  this.newline();
-  if (this.endsWith(charCodes.lineFeed)) {
-    for (let i = 0; i < 4; i++) this.space(true);
-  }
-}
-
-function constDeclarationIndent(this: Printer) {
-  // "const " indentation.
-  this.token(",");
-  this.newline();
-  if (this.endsWith(charCodes.lineFeed)) {
-    for (let i = 0; i < 6; i++) this.space(true);
-  }
-}
-
 export function VariableDeclaration(
   this: Printer,
   node: t.VariableDeclaration,
@@ -277,7 +260,8 @@ export function VariableDeclaration(
     this.space();
   }
 
-  this.word(node.kind);
+  const { kind } = node;
+  this.word(kind, kind === "using" || kind === "await using");
   this.space();
 
   let hasInits = false;
@@ -303,17 +287,15 @@ export function VariableDeclaration(
   //       bar = "foo";
   //
 
-  let separator;
-  if (hasInits) {
-    separator =
-      node.kind === "const"
-        ? constDeclarationIndent
-        : variableDeclarationIndent;
-  }
-
-  //
-
-  this.printList(node.declarations, node, { separator });
+  this.printList(node.declarations, node, {
+    separator: hasInits
+      ? function (this: Printer) {
+          this.token(",");
+          this.newline();
+        }
+      : undefined,
+    indent: node.declarations.length > 1 ? true : false,
+  });
 
   if (isFor(parent)) {
     // don't give semicolons to these nodes since they'll be inserted in the parent generator

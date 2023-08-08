@@ -46,7 +46,7 @@ export function* run(
   try {
     yield* transformFile(file, config.passes);
   } catch (e) {
-    e.message = `${opts.filename ?? "unknown"}: ${e.message}`;
+    e.message = `${opts.filename ?? "unknown file"}: ${e.message}`;
     if (!e.code) {
       e.code = "BABEL_TRANSFORM_ERROR";
     }
@@ -59,7 +59,7 @@ export function* run(
       ({ outputCode, outputMap } = generateCode(config.passes, file));
     }
   } catch (e) {
-    e.message = `${opts.filename ?? "unknown"}: ${e.message}`;
+    e.message = `${opts.filename ?? "unknown file"}: ${e.message}`;
     if (!e.code) {
       e.code = "BABEL_GENERATE_ERROR";
     }
@@ -94,6 +94,7 @@ function* transformFile(file: File, pluginPasses: PluginPasses): Handler<void> {
     for (const [plugin, pass] of passPairs) {
       const fn = plugin.pre;
       if (fn) {
+        // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
         const result = fn.call(pass, file);
 
         // @ts-expect-error - If we want to support async .pre
@@ -121,6 +122,7 @@ function* transformFile(file: File, pluginPasses: PluginPasses): Handler<void> {
     for (const [plugin, pass] of passPairs) {
       const fn = plugin.post;
       if (fn) {
+        // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
         const result = fn.call(pass, file);
 
         // @ts-expect-error - If we want to support async .post

@@ -11,15 +11,16 @@ export function ClassDeclaration(
   node: t.ClassDeclaration,
   parent: t.Node,
 ) {
-  if (process.env.BABEL_8_BREAKING) {
+  const inExport =
+    isExportDefaultDeclaration(parent) || isExportNamedDeclaration(parent);
+
+  if (
+    !inExport ||
+    !this._shouldPrintDecoratorsBeforeExport(
+      parent as t.ExportDeclaration & { declaration: t.ClassDeclaration },
+    )
+  ) {
     this.printJoin(node.decorators, node);
-  } else {
-    if (
-      !this.format.decoratorsBeforeExport ||
-      (!isExportDefaultDeclaration(parent) && !isExportNamedDeclaration(parent))
-    ) {
-      this.printJoin(node.decorators, node);
-    }
   }
 
   if (node.declare) {
@@ -35,7 +36,6 @@ export function ClassDeclaration(
   }
 
   this.word("class");
-  this.printInnerComments(node);
 
   if (node.id) {
     this.space();
@@ -67,19 +67,16 @@ export { ClassDeclaration as ClassExpression };
 
 export function ClassBody(this: Printer, node: t.ClassBody) {
   this.token("{");
-  this.printInnerComments(node);
   if (node.body.length === 0) {
     this.token("}");
   } else {
     this.newline();
 
-    this.indent();
-    this.printSequence(node.body, node);
-    this.dedent();
+    this.printSequence(node.body, node, { indent: true });
 
     if (!this.endsWith(charCodes.lineFeed)) this.newline();
 
-    this.rightBrace();
+    this.rightBrace(node);
   }
 }
 
@@ -88,7 +85,8 @@ export function ClassProperty(this: Printer, node: t.ClassProperty) {
 
   // catch up to property key, avoid line break
   // between member modifiers and the property key.
-  this.source("end", node.key.loc);
+  const endLine = node.key.loc?.end?.line;
+  if (endLine) this.catchUp(endLine);
 
   this.tsPrintClassMemberModifiers(node);
 
@@ -127,13 +125,13 @@ export function ClassAccessorProperty(
 
   // catch up to property key, avoid line break
   // between member modifiers and the property key.
-  this.source("end", node.key.loc);
+  const endLine = node.key.loc?.end?.line;
+  if (endLine) this.catchUp(endLine);
 
   // TS does not support class accessor property yet
   this.tsPrintClassMemberModifiers(node);
 
-  this.word("accessor");
-  this.printInnerComments(node);
+  this.word("accessor", true);
   this.space();
 
   if (node.computed) {
@@ -201,9 +199,12 @@ export function _classMethodHead(
   node: t.ClassMethod | t.ClassPrivateMethod | t.TSDeclareMethod,
 ) {
   this.printJoin(node.decorators, node);
+
   // catch up to method key, avoid line break
   // between member modifiers/method heads and the method key.
-  this.source("end", node.key.loc);
+  const endLine = node.key.loc?.end?.line;
+  if (endLine) this.catchUp(endLine);
+
   this.tsPrintClassMemberModifiers(node);
   this._methodHead(node);
 }
@@ -219,6 +220,6 @@ export function StaticBlock(this: Printer, node: t.StaticBlock) {
     this.printSequence(node.body, node, {
       indent: true,
     });
-    this.rightBrace();
+    this.rightBrace(node);
   }
 }

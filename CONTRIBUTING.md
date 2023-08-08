@@ -43,8 +43,8 @@ _Yarn_: Make sure that Yarn 1 is [installed](https://classic.yarnpkg.com/en/docs
 
 _Make_: If you are running Windows 10, you'll need to do one of the following:
 
-- Clone the repository and run the commands inside [WSL 2](https://docs.microsoft.com/en-us/windows/wsl/install-win10).
-- Install [Make for Windows](http://gnuwin32.sourceforge.net/packages/make.htm).
+- Run the commands inside [WSL 2](https://docs.microsoft.com/en-us/windows/wsl/install-win10).
+- Using make normally (`make` or `./make`), it will automatically call the cross-platform `Makefile.mjs`. (There may be a small part of the function not implemented.)
 
 ### Setup
 
@@ -210,8 +210,7 @@ $ OVERWRITE=true TEST_ONLY=babel-plugin-transform-classes make test-only
 To test the code coverage, use:
 
 ```sh
-$ BABEL_ENV=cov make build
-$ ./scripts/test-cov.sh
+make test-cov
 ```
 
 #### Troubleshooting Tests
@@ -244,7 +243,7 @@ For example, in [`@babel/plugin-transform-exponentiation-operator/test`](https:/
 
 - In each subfolder, you can organize your directory structure by categories of tests. (Example: these folders can be named after the feature you are testing or can reference the issue number they fix)
 - Generally, there are two kinds of tests for plugins
-    - The first is a simple test of the input and output produced by running Babel on some code. We do this by creating an [`input.js`](https://github.com/babel/babel/blob/main/packages/babel-plugin-transform-exponentiation-operator/test/fixtures/exponentian-operator/binary/input.js) file and an [`output.js`](https://github.com/babel/babel/blob/main/packages/babel-plugin-transform-exponentiation-operator/test/fixtures/exponentian-operator/binary/output.js) file. This kind of test only works in sub-subdirectories of `/fixtures`, i.e. `/fixtures/exponentian-operator/binary/input.js` and **not** `/fixtures/exponentian-operator/input.js`.
+    - The first is a simple test of the input and output produced by running Babel on some code. We do this by creating an [`input.js`](https://github.com/babel/babel/blob/main/packages/babel-plugin-transform-exponentiation-operator/test/fixtures/exponentian-operator/binary/input.js) file and an [`output.js`](https://github.com/babel/babel/blob/main/packages/babel-plugin-transform-exponentiation-operator/test/fixtures/exponentian-operator/binary/output.js) file. This kind of test only works in sub-subdirectories of `/fixtures`, i.e. `/fixtures/exponentiation-operator/binary/input.js` and **not** `/fixtures/exponentiation-operator/input.js`.
   - If you need to expect an error, you can ignore creating the `output.js` file and pass a new `throws` key to the `options.json` that contains the error string that is created.
   - The second and preferred type is a test that actually evaluates the produced code and asserts that certain properties are true or false. We do this by creating an [`exec.js`](https://github.com/babel/babel/blob/main/packages/babel-plugin-transform-exponentiation-operator/test/fixtures/exponentian-operator/comprehensive/exec.js) file.
 

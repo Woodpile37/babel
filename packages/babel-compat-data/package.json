@@ -1,6 +1,6 @@
 {
   "name": "@babel/compat-data",
-  "version": "7.18.8",
+  "version": "7.22.5",
   "author": "The Babel Team (https://babel.dev/team)",
   "license": "MIT",
   "description": "",
@@ -11,6 +11,20 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "conditions": {
+    "BABEL_8_BREAKING": [
+      {
+        "./plugins": "./plugins.js",
+        "./native-modules": "./native-modules.js",
+        "./overlapping-plugins": "./overlapping-plugins.js",
+        "./plugin-bugfixes": "./plugin-bugfixes.js",
+        "engines": {
+          "node": "^16.20.0 || ^18.16.0 || >=20.0.0"
+        }
+      },
+      null
+    ]
   },
   "exports": {
     "./plugins": "./plugins.js",
@@ -30,8 +44,8 @@
   ],
   "devDependencies": {
     "@mdn/browser-compat-data": "^4.0.10",
-    "core-js-compat": "^3.22.1",
-    "electron-to-chromium": "^1.4.113"
+    "core-js-compat": "^3.30.2",
+    "electron-to-chromium": "^1.4.248"
   },
   "engines": {
     "node": ">=6.9.0"

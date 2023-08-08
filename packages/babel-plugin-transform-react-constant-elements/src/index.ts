@@ -1,6 +1,6 @@
 import { declare } from "@babel/helper-plugin-utils";
 import { types as t, template } from "@babel/core";
-import type { Visitor, Scope } from "@babel/traverse";
+import type { Visitor, Scope, NodePath } from "@babel/traverse";
 
 export interface Options {
   allowMutablePropsOnTags?: null | string[];
@@ -52,79 +52,6 @@ export default declare((api, options: Options) => {
     return scope;
   }
 
-  const immutabilityVisitor: Visitor<VisitorState> = {
-    enter(path, state) {
-      const stop = () => {
-        state.isImmutable = false;
-        path.stop();
-      };
-
-      const skip = () => {
-        path.skip();
-      };
-
-      if (path.isJSXClosingElement()) return skip();
-
-      // Elements with refs are not safe to hoist.
-      if (
-        path.isJSXIdentifier({ name: "ref" }) &&
-        path.parentPath.isJSXAttribute({ name: path.node })
-      ) {
-        return stop();
-      }
-
-      // Ignore JSX expressions and immutable values.
-      if (
-        path.isJSXIdentifier() ||
-        path.isJSXMemberExpression() ||
-        path.isJSXNamespacedName() ||
-        path.isImmutable()
-      ) {
-        return;
-      }
-
-      // Ignore constant bindings.
-      if (path.isIdentifier()) {
-        const binding = path.scope.getBinding(path.node.name);
-        if (binding && binding.constant) return;
-      }
-
-      // If we allow mutable props, tags with function expressions can be
-      // safely hoisted.
-      const { mutablePropsAllowed } = state;
-      if (mutablePropsAllowed && path.isFunction()) {
-        path.traverse(targetScopeVisitor, state);
-        return skip();
-      }
-
-      if (!path.isPure()) return stop();
-
-      // If it's not immutable, it may still be a pure expression, such as string concatenation.
-      // It is still safe to hoist that, so long as its result is immutable.
-      // If not, it is not safe to replace as mutable values (like objects) could be mutated after render.
-      // https://github.com/facebook/react/issues/3226
-      const expressionResult = path.evaluate();
-      if (expressionResult.confident) {
-        // We know the result; check its mutability.
-        const { value } = expressionResult;
-        if (
-          mutablePropsAllowed ||
-          value === null ||
-          (typeof value !== "object" && typeof value !== "function")
-        ) {
-          // It evaluated to an immutable value, so we can hoist it.
-          return skip();
-        }
-      } else if (t.isIdentifier(expressionResult.deopt)) {
-        // It's safe to hoist here if the deopt reason is an identifier (e.g. func param).
-        // The hoister will take care of how high up it can be hoisted.
-        return;
-      }
-
-      stop();
-    },
-  };
-
   const targetScopeVisitor: Visitor<VisitorState> = {
     ReferencedIdentifier(path, state) {
       const { node } = path;
@@ -154,6 +81,88 @@ export default declare((api, options: Options) => {
     },
   };
 
+  const immutabilityVisitor: Visitor<VisitorState> = {
+    enter(path, state) {
+      const stop = () => {
+        state.isImmutable = false;
+        path.stop();
+      };
+
+      const skip = () => {
+        path.skip();
+      };
+
+      if (path.isJSXClosingElement()) {
+        skip();
+        return;
+      }
+
+      // Elements with refs are not safe to hoist.
+      if (
+        path.isJSXIdentifier({ name: "ref" }) &&
+        path.parentPath.isJSXAttribute({ name: path.node })
+      ) {
+        stop();
+        return;
+      }
+
+      // Ignore JSX expressions and immutable values.
+      if (
+        path.isJSXIdentifier() ||
+        path.isJSXMemberExpression() ||
+        path.isJSXNamespacedName() ||
+        path.isImmutable()
+      ) {
+        return;
+      }
+
+      // Ignore constant bindings.
+      if (path.isIdentifier()) {
+        const binding = path.scope.getBinding(path.node.name);
+        if (binding && binding.constant) return;
+      }
+
+      // If we allow mutable props, tags with function expressions can be
+      // safely hoisted.
+      const { mutablePropsAllowed } = state;
+      if (mutablePropsAllowed && path.isFunction()) {
+        path.traverse(targetScopeVisitor, state);
+        skip();
+        return;
+      }
+
+      if (!path.isPure()) {
+        stop();
+        return;
+      }
+
+      // If it's not immutable, it may still be a pure expression, such as string concatenation.
+      // It is still safe to hoist that, so long as its result is immutable.
+      // If not, it is not safe to replace as mutable values (like objects) could be mutated after render.
+      // https://github.com/facebook/react/issues/3226
+      const expressionResult = path.evaluate();
+      if (expressionResult.confident) {
+        // We know the result; check its mutability.
+        const { value } = expressionResult;
+        if (
+          mutablePropsAllowed ||
+          value === null ||
+          (typeof value !== "object" && typeof value !== "function")
+        ) {
+          // It evaluated to an immutable value, so we can hoist it.
+          skip();
+          return;
+        }
+      } else if (expressionResult.deopt?.isIdentifier()) {
+        // It's safe to hoist here if the deopt reason is an identifier (e.g. func param).
+        // The hoister will take care of how high up it can be hoisted.
+        return;
+      }
+
+      stop();
+    },
+  };
+
   // We cannot use traverse.visitors.merge because it doesn't support
   // immutabilityVisitor's bare `enter` visitor.
   // It's safe to just use ... because the two visitors don't share any key.
@@ -165,8 +174,6 @@ export default declare((api, options: Options) => {
     visitor: {
       JSXElement(path) {
         if (HOISTED.has(path.node)) return;
-        HOISTED.set(path.node, path.scope);
-
         const name = path.node.openingElement.name;
 
         // This transform takes the option `allowMutablePropsOnTags`, which is an array
@@ -191,13 +198,15 @@ export default declare((api, options: Options) => {
         // current element has already been hoisted, we can consider its target
         // scope as the base scope for the current element.
         let jsxScope;
-        let current = path;
+        let current: NodePath<t.JSX> = path;
         while (!jsxScope && current.parentPath.isJSX()) {
-          // @ts-expect-error current is a search pointer
           current = current.parentPath;
           jsxScope = HOISTED.get(current.node);
         }
         jsxScope ??= path.scope;
+        // The initial HOISTED is set to jsxScope, s.t.
+        // if the element's JSX ancestor has been hoisted, it will be skipped
+        HOISTED.set(path.node, jsxScope);
 
         const visitorState: VisitorState = {
           isImmutable: true,
@@ -209,8 +218,6 @@ export default declare((api, options: Options) => {
         if (!visitorState.isImmutable) return;
 
         const { targetScope } = visitorState;
-        HOISTED.set(path.node, targetScope);
-
         // Only hoist if it would give us an advantage.
         for (let currentScope = jsxScope; ; ) {
           if (targetScope === currentScope) return;
@@ -228,6 +235,8 @@ export default declare((api, options: Options) => {
 
         const id = path.scope.generateUidBasedOnNode(name);
         targetScope.push({ id: t.identifier(id) });
+        // If the element is to be hoisted, update HOISTED to be the target scope
+        HOISTED.set(path.node, targetScope);
 
         let replacement: t.Expression | t.JSXExpressionContainer = template
           .expression.ast`

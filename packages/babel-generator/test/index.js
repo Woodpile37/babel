@@ -6,23 +6,10 @@ import fixtures from "@babel/helper-fixtures";
 import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
 import { fileURLToPath } from "url";
 
-import _Printer from "../lib/printer.js";
 import _generate, { CodeGenerator } from "../lib/index.js";
-const Printer = _Printer.default || _Printer;
 const generate = _generate.default || _generate;
 
 describe("generation", function () {
-  it("completeness", function () {
-    Object.keys(t.VISITOR_KEYS).forEach(function (type) {
-      expect(Printer.prototype[type]).toBeTruthy();
-    });
-
-    Object.keys(Printer.prototype).forEach(function (type) {
-      if (!/[A-Z]/.test(type[0])) return;
-      expect(t.VISITOR_KEYS[type]).toBeTruthy();
-    });
-  });
-
   it("multiple sources", function () {
     const sources = {
       "a.js": "function hi (msg) { console.log(msg); }\n",
@@ -49,137 +36,266 @@ describe("generation", function () {
 
     const generated = generate(combinedAst, { sourceMaps: true }, sources);
 
-    expect(generated.map).toEqual(
-      {
-        version: 3,
-        sources: ["a.js", "b.js"],
-        mappings:
-          "AAAA,SAASA,EAAT,CAAaC,GAAb,EAAkB;EAAEC,OAAO,CAACC,GAAR,CAAYF,GAAZ;AAAmB;;ACAvCD,EAAE,CAAC,OAAD,CAAF",
-        names: ["hi", "msg", "console", "log"],
-        sourcesContent: [
-          "function hi (msg) { console.log(msg); }\n",
-          "hi('hello');\n",
+    expect(generated.map).toMatchInlineSnapshot(`
+      Object {
+        "file": undefined,
+        "mappings": "AAAA,SAASA,EAAEA,CAAEC,GAAG,EAAE;EAAEC,OAAO,CAACC,GAAG,CAACF,GAAG,CAAC;AAAE;ACAtCD,EAAE,CAAC,OAAO,CAAC",
+        "names": Array [
+          "hi",
+          "msg",
+          "console",
+          "log",
         ],
-      },
-      "sourcemap was incorrectly generated",
-    );
+        "sourceRoot": undefined,
+        "sources": Array [
+          "a.js",
+          "b.js",
+        ],
+        "sourcesContent": Array [
+          "function hi (msg) { console.log(msg); }
+      ",
+          "hi('hello');
+      ",
+        ],
+        "version": 3,
+      }
+    `);
 
-    expect(generated.rawMappings).toEqual(
-      [
-        {
-          name: undefined,
-          generated: { line: 1, column: 0 },
-          source: "a.js",
-          original: { line: 1, column: 0 },
+    expect(generated.rawMappings).toMatchInlineSnapshot(`
+      Array [
+        Object {
+          "generated": Object {
+            "column": 0,
+            "line": 1,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 0,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: "hi",
-          generated: { line: 1, column: 9 },
-          source: "a.js",
-          original: { line: 1, column: 9 },
+        Object {
+          "generated": Object {
+            "column": 9,
+            "line": 1,
+          },
+          "name": "hi",
+          "original": Object {
+            "column": 9,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: undefined,
-          generated: { line: 1, column: 11 },
-          source: "a.js",
-          original: { line: 1, column: 0 },
+        Object {
+          "generated": Object {
+            "column": 11,
+            "line": 1,
+          },
+          "name": "hi",
+          "original": Object {
+            "column": 11,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: "msg",
-          generated: { line: 1, column: 12 },
-          source: "a.js",
-          original: { line: 1, column: 13 },
+        Object {
+          "generated": Object {
+            "column": 12,
+            "line": 1,
+          },
+          "name": "msg",
+          "original": Object {
+            "column": 13,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: undefined,
-          generated: { line: 1, column: 15 },
-          source: "a.js",
-          original: { line: 1, column: 0 },
+        Object {
+          "generated": Object {
+            "column": 15,
+            "line": 1,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 16,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: undefined,
-          generated: { line: 1, column: 17 },
-          source: "a.js",
-          original: { line: 1, column: 18 },
+        Object {
+          "generated": Object {
+            "column": 17,
+            "line": 1,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 18,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: "console",
-          generated: { line: 2, column: 2 },
-          source: "a.js",
-          original: { line: 1, column: 20 },
+        Object {
+          "generated": Object {
+            "column": 2,
+            "line": 2,
+          },
+          "name": "console",
+          "original": Object {
+            "column": 20,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: undefined,
-          generated: { line: 2, column: 9 },
-          source: "a.js",
-          original: { line: 1, column: 27 },
+        Object {
+          "generated": Object {
+            "column": 9,
+            "line": 2,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 27,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: "log",
-          generated: { line: 2, column: 10 },
-          source: "a.js",
-          original: { line: 1, column: 28 },
+        Object {
+          "generated": Object {
+            "column": 10,
+            "line": 2,
+          },
+          "name": "log",
+          "original": Object {
+            "column": 28,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: undefined,
-          generated: { line: 2, column: 13 },
-          source: "a.js",
-          original: { line: 1, column: 20 },
+        Object {
+          "generated": Object {
+            "column": 13,
+            "line": 2,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 31,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: "msg",
-          generated: { line: 2, column: 14 },
-          source: "a.js",
-          original: { line: 1, column: 32 },
+        Object {
+          "generated": Object {
+            "column": 14,
+            "line": 2,
+          },
+          "name": "msg",
+          "original": Object {
+            "column": 32,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: undefined,
-          generated: { line: 2, column: 17 },
-          source: "a.js",
-          original: { line: 1, column: 20 },
+        Object {
+          "generated": Object {
+            "column": 17,
+            "line": 2,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 35,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: undefined,
-          generated: { line: 3, column: 0 },
-          source: "a.js",
-          original: { line: 1, column: 39 },
+        Object {
+          "generated": Object {
+            "column": 18,
+            "line": 2,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 36,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: "hi",
-          generated: { line: 5, column: 0 },
-          source: "b.js",
-          original: { line: 1, column: 0 },
+        Object {
+          "generated": Object {
+            "column": 0,
+            "line": 3,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 38,
+            "line": 1,
+          },
+          "source": "a.js",
         },
-        {
-          name: undefined,
-          generated: { line: 5, column: 2 },
-          source: "b.js",
-          original: { line: 1, column: 2 },
+        Object {
+          "generated": Object {
+            "column": 0,
+            "line": 4,
+          },
+          "name": "hi",
+          "original": Object {
+            "column": 0,
+            "line": 1,
+          },
+          "source": "b.js",
         },
-        {
-          name: undefined,
-          generated: { line: 5, column: 3 },
-          source: "b.js",
-          original: { line: 1, column: 3 },
+        Object {
+          "generated": Object {
+            "column": 2,
+            "line": 4,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 2,
+            "line": 1,
+          },
+          "source": "b.js",
         },
-        {
-          name: undefined,
-          generated: { line: 5, column: 10 },
-          source: "b.js",
-          original: { line: 1, column: 2 },
+        Object {
+          "generated": Object {
+            "column": 3,
+            "line": 4,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 3,
+            "line": 1,
+          },
+          "source": "b.js",
         },
-        {
-          name: undefined,
-          generated: { line: 5, column: 11 },
-          source: "b.js",
-          original: { line: 1, column: 0 },
+        Object {
+          "generated": Object {
+            "column": 10,
+            "line": 4,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 10,
+            "line": 1,
+          },
+          "source": "b.js",
         },
-      ],
-      "raw mappings were incorrectly generated",
-    );
+        Object {
+          "generated": Object {
+            "column": 11,
+            "line": 4,
+          },
+          "name": undefined,
+          "original": Object {
+            "column": 11,
+            "line": 1,
+          },
+          "source": "b.js",
+        },
+      ]
+    `);
 
     expect(generated.code).toBe(
-      "function hi(msg) {\n  console.log(msg);\n}\n\nhi('hello');",
+      "function hi(msg) {\n  console.log(msg);\n}\nhi('hello');",
     );
   });
 
@@ -207,66 +323,220 @@ describe("generation", function () {
       code,
     );
 
-    expect(generated.map).toEqual(
-      {
-        version: 3,
-        sources: ["inline"],
-        names: ["foo", "bar"],
-        mappings: "AAAA,SAASA,IAAT,GAAe;EAAEC,IAAG;AAAG",
-        sourcesContent: ["function foo() { bar; }\n"],
-      },
-      "sourcemap was incorrectly generated",
-    );
-
-    expect(generated.rawMappings).toEqual(
-      [
-        {
-          name: undefined,
-          generated: { line: 1, column: 0 },
-          source: "inline",
-          original: { line: 1, column: 0 },
+    expect(generated).toMatchInlineSnapshot(`
+      Object {
+        "__mergedMap": Object {
+          "file": undefined,
+          "mappings": "AAAA,SAASA,IAAGA,CAAA,EAAG;EAAEC,IAAG;AAAE",
+          "names": Array [
+            "foo",
+            "bar",
+          ],
+          "sourceRoot": undefined,
+          "sources": Array [
+            "inline",
+          ],
+          "sourcesContent": Array [
+            "function foo() { bar; }
+      ",
+          ],
+          "version": 3,
         },
-        {
-          name: "foo",
-          generated: { line: 1, column: 9 },
-          source: "inline",
-          original: { line: 1, column: 9 },
+        "code": "function foo2() {
+        bar2;
+      }",
+        "decodedMap": Object {
+          "file": undefined,
+          "mappings": Array [
+            Array [
+              Array [
+                0,
+                0,
+                0,
+                0,
+              ],
+              Array [
+                9,
+                0,
+                0,
+                9,
+                0,
+              ],
+              Array [
+                13,
+                0,
+                0,
+                12,
+                0,
+              ],
+              Array [
+                14,
+                0,
+                0,
+                12,
+              ],
+              Array [
+                16,
+                0,
+                0,
+                15,
+              ],
+            ],
+            Array [
+              Array [
+                2,
+                0,
+                0,
+                17,
+                1,
+              ],
+              Array [
+                6,
+                0,
+                0,
+                20,
+              ],
+            ],
+            Array [
+              Array [
+                0,
+                0,
+                0,
+                22,
+              ],
+            ],
+          ],
+          "names": Array [
+            "foo",
+            "bar",
+          ],
+          "sourceRoot": undefined,
+          "sources": Array [
+            "inline",
+          ],
+          "sourcesContent": Array [
+            "function foo() { bar; }
+      ",
+          ],
+          "version": 3,
         },
-        {
-          name: undefined,
-          generated: { line: 1, column: 13 },
-          source: "inline",
-          original: { line: 1, column: 0 },
+        "map": Object {
+          "file": undefined,
+          "mappings": "AAAA,SAASA,IAAGA,CAAA,EAAG;EAAEC,IAAG;AAAE",
+          "names": Array [
+            "foo",
+            "bar",
+          ],
+          "sourceRoot": undefined,
+          "sources": Array [
+            "inline",
+          ],
+          "sourcesContent": Array [
+            "function foo() { bar; }
+      ",
+          ],
+          "version": 3,
         },
-        {
-          name: undefined,
-          generated: { line: 1, column: 16 },
-          source: "inline",
-          original: { line: 1, column: 15 },
-        },
-        {
-          name: "bar",
-          generated: { line: 2, column: 2 },
-          source: "inline",
-          original: { line: 1, column: 17 },
-        },
-        {
-          name: undefined,
-          generated: { line: 2, column: 6 },
-          source: "inline",
-          original: { line: 1, column: 20 },
-        },
-        {
-          name: undefined,
-          generated: { line: 3, column: 0 },
-          source: "inline",
-          original: { line: 1, column: 23 },
-        },
-      ],
-      "raw mappings were incorrectly generated",
-    );
-
-    expect(generated.code).toBe("function foo2() {\n  bar2;\n}");
+        "rawMappings": Array [
+          Object {
+            "generated": Object {
+              "column": 0,
+              "line": 1,
+            },
+            "name": undefined,
+            "original": Object {
+              "column": 0,
+              "line": 1,
+            },
+            "source": "inline",
+          },
+          Object {
+            "generated": Object {
+              "column": 9,
+              "line": 1,
+            },
+            "name": "foo",
+            "original": Object {
+              "column": 9,
+              "line": 1,
+            },
+            "source": "inline",
+          },
+          Object {
+            "generated": Object {
+              "column": 13,
+              "line": 1,
+            },
+            "name": "foo",
+            "original": Object {
+              "column": 12,
+              "line": 1,
+            },
+            "source": "inline",
+          },
+          Object {
+            "generated": Object {
+              "column": 14,
+              "line": 1,
+            },
+            "name": undefined,
+            "original": Object {
+              "column": 12,
+              "line": 1,
+            },
+            "source": "inline",
+          },
+          Object {
+            "generated": Object {
+              "column": 16,
+              "line": 1,
+            },
+            "name": undefined,
+            "original": Object {
+              "column": 15,
+              "line": 1,
+            },
+            "source": "inline",
+          },
+          Object {
+            "generated": Object {
+              "column": 2,
+              "line": 2,
+            },
+            "name": "bar",
+            "original": Object {
+              "column": 17,
+              "line": 1,
+            },
+            "source": "inline",
+          },
+          Object {
+            "generated": Object {
+              "column": 6,
+              "line": 2,
+            },
+            "name": undefined,
+            "original": Object {
+              "column": 20,
+              "line": 1,
+            },
+            "source": "inline",
+          },
+          Object {
+            "generated": Object {
+              "column": 0,
+              "line": 3,
+            },
+            "name": undefined,
+            "original": Object {
+              "column": 22,
+              "line": 1,
+            },
+            "source": "inline",
+          },
+        ],
+      }
+    `);
   });
 
   it("newline in template literal", () => {
@@ -354,9 +624,295 @@ describe("generation", function () {
 
     const ast = t.program([...ast1.body, ...ast2.body]);
 
-    expect(generate(ast).code).toBe(
-      "/*#__PURE__*/\na();\n\n/*#__PURE__*/\nb();",
+    expect(generate(ast).code).toBe("/*#__PURE__*/a();\n/*#__PURE__*/b();");
+  });
+
+  it("comments with null or undefined loc", () => {
+    const code = "/*#__PURE__*/ /*#__PURE__*/";
+
+    const ast = parse(code);
+
+    ast.comments[0].loc = null;
+    ast.comments[1].loc = undefined;
+
+    expect(generate(ast).code).toBe("/*#__PURE__*/\n/*#__PURE__*/");
+  });
+
+  it("comments without loc", () => {
+    const ast = parse(
+      `
+        import {
+            Attribute,
+            AttributeSDKType
+        }
+        from "../../base/v1beta1/attribute";
+        import {
+            Rpc
+        }
+        from "../../../helpers";
+        import * as _m0 from "protobufjs/minimal";
+        import {
+            MsgSignProviderAttributes,
+            MsgSignProviderAttributesSDKType,
+            MsgSignProviderAttributesResponse,
+            MsgSignProviderAttributesResponseSDKType,
+            MsgDeleteProviderAttributes,
+            MsgDeleteProviderAttributesSDKType,
+            MsgDeleteProviderAttributesResponse,
+            MsgDeleteProviderAttributesResponseSDKType
+        }
+        from "./audit";
+        /** Msg defines the provider Msg service */
+        export interface Msg {
+            /** SignProviderAttributes defines a method that signs provider attributes */
+            signProviderAttributes(request: MsgSignProviderAttributes): Promise < MsgSignProviderAttributesResponse > ;
+            /** DeleteProviderAttributes defines a method that deletes provider attributes */
+            deleteProviderAttributes(request: MsgDeleteProviderAttributes): Promise < MsgDeleteProviderAttributesResponse > ;
+        }
+        export class MsgClientImpl implements Msg {
+            private readonly rpc: Rpc;
+            constructor(rpc: Rpc) {
+                this.rpc = rpc;
+            }
+            /* SignProviderAttributes defines a method that signs provider attributes */
+            signProviderAttributes = async(request: MsgSignProviderAttributes): Promise < MsgSignProviderAttributesResponse >  => {
+                const data = MsgSignProviderAttributes.encode(request).finish();
+                const promise = this.rpc.request("akash.audit.v1beta1.Msg", "SignProviderAttributes", data);
+                return promise.then(data => MsgSignProviderAttributesResponse.decode(new _m0.Reader(data)));
+            };
+            /* DeleteProviderAttributes defines a method that deletes provider attributes */
+            deleteProviderAttributes = async(request: MsgDeleteProviderAttributes): Promise < MsgDeleteProviderAttributesResponse >  => {
+                const data = MsgDeleteProviderAttributes.encode(request).finish();
+                const promise = this.rpc.request("akash.audit.v1beta1.Msg", "DeleteProviderAttributes", data);
+                return promise.then(data => MsgDeleteProviderAttributesResponse.decode(new _m0.Reader(data)));
+            };
+        }
+    `,
+      { sourceType: "module", plugins: ["typescript"] },
     );
+
+    for (const comment of ast.comments) {
+      comment.loc = undefined;
+    }
+
+    expect(generate(ast).code).toMatchInlineSnapshot(`
+      "import { Attribute, AttributeSDKType } from \\"../../base/v1beta1/attribute\\";
+      import { Rpc } from \\"../../../helpers\\";
+      import * as _m0 from \\"protobufjs/minimal\\";
+      import { MsgSignProviderAttributes, MsgSignProviderAttributesSDKType, MsgSignProviderAttributesResponse, MsgSignProviderAttributesResponseSDKType, MsgDeleteProviderAttributes, MsgDeleteProviderAttributesSDKType, MsgDeleteProviderAttributesResponse, MsgDeleteProviderAttributesResponseSDKType } from \\"./audit\\";
+      /** Msg defines the provider Msg service */
+      export interface Msg {
+        /** SignProviderAttributes defines a method that signs provider attributes */
+        signProviderAttributes(request: MsgSignProviderAttributes): Promise<MsgSignProviderAttributesResponse>;
+        /** DeleteProviderAttributes defines a method that deletes provider attributes */
+        deleteProviderAttributes(request: MsgDeleteProviderAttributes): Promise<MsgDeleteProviderAttributesResponse>;
+      }
+      export class MsgClientImpl implements Msg {
+        private readonly rpc: Rpc;
+        constructor(rpc: Rpc) {
+          this.rpc = rpc;
+        }
+        /* SignProviderAttributes defines a method that signs provider attributes */
+        signProviderAttributes = async (request: MsgSignProviderAttributes): Promise<MsgSignProviderAttributesResponse> => {
+          const data = MsgSignProviderAttributes.encode(request).finish();
+          const promise = this.rpc.request(\\"akash.audit.v1beta1.Msg\\", \\"SignProviderAttributes\\", data);
+          return promise.then(data => MsgSignProviderAttributesResponse.decode(new _m0.Reader(data)));
+        };
+        /* DeleteProviderAttributes defines a method that deletes provider attributes */
+        deleteProviderAttributes = async (request: MsgDeleteProviderAttributes): Promise<MsgDeleteProviderAttributesResponse> => {
+          const data = MsgDeleteProviderAttributes.encode(request).finish();
+          const promise = this.rpc.request(\\"akash.audit.v1beta1.Msg\\", \\"DeleteProviderAttributes\\", data);
+          return promise.then(data => MsgDeleteProviderAttributesResponse.decode(new _m0.Reader(data)));
+        };
+      }"
+    `);
+  });
+
+  it("comments without loc2", () => {
+    const ast = parse(
+      `
+        (function (_templateFactory) {
+            "use strict";
+
+            const template = (0, _templateFactory.createTemplateFactory)(
+            /*{{somevalue}}*/
+            {
+                "id": null,
+                "block": "[[[1,[34,0]]],[],false,[\\"somevalue\\"]]",
+                "moduleName": "(unknown template module)",
+                "isStrictMode": false
+            });
+        });
+
+        const template = (0, _templateFactory.createTemplateFactory)(
+        /*
+          {{somevalue}}
+        */
+        {
+            "id": null,
+            "block": "[[[1,[34,0]]],[],false,[\\"somevalue\\"]]",
+            "moduleName": "(unknown template module)",
+            "isStrictMode": false
+        });
+      `,
+      { sourceType: "module" },
+    );
+
+    for (const comment of ast.comments) {
+      comment.loc = undefined;
+    }
+
+    expect(generate(ast).code).toMatchInlineSnapshot(`
+      "(function (_templateFactory) {
+        \\"use strict\\";
+
+        const template = (0, _templateFactory.createTemplateFactory)(
+        /*{{somevalue}}*/
+        {
+          \\"id\\": null,
+          \\"block\\": \\"[[[1,[34,0]]],[],false,[\\\\\\"somevalue\\\\\\"]]\\",
+          \\"moduleName\\": \\"(unknown template module)\\",
+          \\"isStrictMode\\": false
+        });
+      });
+      const template = (0, _templateFactory.createTemplateFactory)(
+      /*
+                {{somevalue}}
+              */
+      {
+        \\"id\\": null,
+        \\"block\\": \\"[[[1,[34,0]]],[],false,[\\\\\\"somevalue\\\\\\"]]\\",
+        \\"moduleName\\": \\"(unknown template module)\\",
+        \\"isStrictMode\\": false
+      });"
+    `);
+  });
+
+  it("comments without loc3", () => {
+    const ast = parse(
+      `
+        /** This describes how the endpoint is implemented when the lease is deployed */
+        export enum Endpoint_Kind {
+          /** SHARED_HTTP - Describes an endpoint that becomes a Kubernetes Ingress */
+          SHARED_HTTP = 0,
+          /** RANDOM_PORT - Describes an endpoint that becomes a Kubernetes NodePort */
+          RANDOM_PORT = 1,
+          UNRECOGNIZED = -1,
+        }
+      `,
+      { sourceType: "module", plugins: ["typescript"] },
+    );
+
+    for (const comment of ast.comments) {
+      comment.loc = undefined;
+    }
+
+    expect(generate(ast).code).toMatchInlineSnapshot(`
+      "/** This describes how the endpoint is implemented when the lease is deployed */
+      export enum Endpoint_Kind {
+        /** SHARED_HTTP - Describes an endpoint that becomes a Kubernetes Ingress */
+        SHARED_HTTP = 0,
+        /** RANDOM_PORT - Describes an endpoint that becomes a Kubernetes NodePort */
+        RANDOM_PORT = 1,
+        UNRECOGNIZED = -1,
+      }"
+    `);
+  });
+
+  it("comments without node.loc", () => {
+    const ast = parse(
+      `
+        (function (_templateFactory) {
+            "use strict";
+
+            const template = (0, _templateFactory.createTemplateFactory)(
+            /*{{somevalue}}*/
+            {
+                "id": null,
+                "block": "[[[1,[34,0]]],[],false,[\\"somevalue\\"]]",
+                "moduleName": "(unknown template module)",
+                "isStrictMode": false
+            });
+        });
+
+        const template = (0, _templateFactory.createTemplateFactory)(
+        /*
+          {{somevalue}}
+        */
+        {
+            "id": null,
+            "block": "[[[1,[34,0]]],[],false,[\\"somevalue\\"]]",
+            "moduleName": "(unknown template module)",
+            "isStrictMode": false
+        });
+      `,
+      { sourceType: "module" },
+    );
+
+    const ast2 = t.cloneNode(ast, true, true);
+
+    for (let i = 0; i < ast.comments.length; i++) {
+      ast2.comments[i].loc = ast.comments[i].loc;
+    }
+
+    expect(generate(ast2).code).toMatchInlineSnapshot(`
+      "(function (_templateFactory) {
+        \\"use strict\\";
+
+        const template = (0, _templateFactory.createTemplateFactory)(
+        /*{{somevalue}}*/
+        {
+          \\"id\\": null,
+          \\"block\\": \\"[[[1,[34,0]]],[],false,[\\\\\\"somevalue\\\\\\"]]\\",
+          \\"moduleName\\": \\"(unknown template module)\\",
+          \\"isStrictMode\\": false
+        });
+      });
+      const template = (0, _templateFactory.createTemplateFactory)(
+      /*
+        {{somevalue}}
+      */
+      {
+        \\"id\\": null,
+        \\"block\\": \\"[[[1,[34,0]]],[],false,[\\\\\\"somevalue\\\\\\"]]\\",
+        \\"moduleName\\": \\"(unknown template module)\\",
+        \\"isStrictMode\\": false
+      });"
+    `);
+  });
+
+  it("inputSourceMap without sourcesContent", () => {
+    const ast = parse("var t = x => x * x;");
+
+    expect(
+      generate(ast, {
+        sourceMaps: true,
+        inputSourceMap: {
+          version: 3,
+          names: ["t", "x"],
+          sources: ["source-maps/arrow-function/input.js"],
+          mappings:
+            "AAAA,IAAIA,CAAC,GAAG,SAAJA,CAACA,CAAGC,CAAC;EAAA,OAAIA,CAAC,GAAGA,CAAC;AAAA",
+        },
+      }).map,
+    ).toMatchInlineSnapshot(`
+      Object {
+        "file": undefined,
+        "mappings": "AAAA,IAAIA,CAAC,GAAGC,CAAA,IAAAA,CAAA,GAAJA,CAAC",
+        "names": Array [
+          "t",
+          "x",
+        ],
+        "sourceRoot": undefined,
+        "sources": Array [
+          "source-maps/arrow-function/input.js",
+        ],
+        "sourcesContent": Array [
+          undefined,
+        ],
+        "version": 3,
+      }
+    `);
   });
 });
 
@@ -489,6 +1045,28 @@ describe("programmatic generation", function () {
     );
     const output = generate(functionTypeAnnotation).code;
     expect(output).toBe("() => void");
+  });
+
+  it("generate a child node with retainLines", () => {
+    const node = parse("a;\n\nexpect(a).toMatchInlineSnapshot(`[1, 2]`\n);")
+      .program.body[1].expression;
+
+    expect(node.type).toBe("CallExpression");
+
+    expect(generate(node, { retainLines: true }).code).toMatchInlineSnapshot(`
+      "
+
+      expect(a).toMatchInlineSnapshot(\`[1, 2]\`
+      )"
+    `);
+
+    node.loc.end.line = node.loc.start.line;
+
+    expect(generate(node, { retainLines: true }).code).toMatchInlineSnapshot(`
+      "
+
+      expect(a).toMatchInlineSnapshot(\`[1, 2]\`)"
+    `);
   });
 
   describe("directives", function () {
@@ -796,6 +1374,57 @@ describe("programmatic generation", function () {
       expect(output).toBe("for ((let)[x];;);");
     });
   });
+
+  describe("should print inner comments even if there are no suitable inner locations", () => {
+    it("atomic node", () => {
+      const id = t.identifier("foo");
+      id.innerComments = [{ type: "CommentBlock", value: "foo" }];
+      expect(generate(id).code).toMatchInlineSnapshot(`"foo /*foo*/"`);
+    });
+
+    it("node without inner locations", () => {
+      const expr = t.binaryExpression(
+        "+",
+        t.numericLiteral(1),
+        t.numericLiteral(2),
+      );
+      expr.innerComments = [{ type: "CommentBlock", value: "foo" }];
+      expect(generate(expr).code).toMatchInlineSnapshot(`"1 + 2 /*foo*/"`);
+    });
+
+    it("comment skipped in arrow function because of newlines", () => {
+      const arrow = t.arrowFunctionExpression(
+        [t.identifier("x"), t.identifier("y")],
+        t.identifier("z"),
+      );
+      arrow.innerComments = [
+        { type: "CommentBlock", value: "foo" },
+        { type: "CommentBlock", value: "new\nline" },
+      ];
+      expect(generate(arrow).code).toMatchInlineSnapshot(`
+        "(x, y) /*foo*/ => z
+        /*new
+        line*/"
+      `);
+    });
+
+    it("comment in arrow function with return type", () => {
+      const arrow = t.arrowFunctionExpression(
+        [t.identifier("x"), t.identifier("y")],
+        t.identifier("z"),
+      );
+      arrow.returnType = t.tsTypeAnnotation(t.tsAnyKeyword());
+      arrow.returnType.trailingComments = [
+        { type: "CommentBlock", value: "foo" },
+        // This comment is dropped. There is no way to safely print it
+        // as a trailingComment of the return type.
+        { type: "CommentBlock", value: "new\nline" },
+      ];
+      expect(generate(arrow).code).toMatchInlineSnapshot(
+        `"(x, y): any /*foo*/ => z"`,
+      );
+    });
+  });
 });
 
 describe("CodeGenerator", function () {
@@ -809,6 +1438,10 @@ describe("CodeGenerator", function () {
 const suites = (fixtures.default || fixtures)(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures"),
 );
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 suites.forEach(function (testSuite) {
   describe("generation/" + testSuite.title, function () {
@@ -824,14 +1457,15 @@ suites.forEach(function (testSuite) {
           const actualCode = actual.code;
 
           if (actualCode) {
-            const actualAst = parse(actualCode, {
+            const parserOpts = {
               filename: actual.loc,
               plugins: task.options.plugins || [],
               strictMode: task.options.strictMode === false ? false : true,
               sourceType: "module",
               sourceMaps: !!task.sourceMap,
               ...task.options.parserOpts,
-            });
+            };
+            const actualAst = parse(actualCode, parserOpts);
             const options = {
               sourceFileName: path.relative(
                 path.dirname(fileURLToPath(import.meta.url)),
@@ -845,19 +1479,32 @@ suites.forEach(function (testSuite) {
               return generate(actualAst, options, actualCode);
             };
 
-            const throwMsg = task.options.throws;
+            const throwMsg = options.throws;
             if (throwMsg) {
               expect(() => run()).toThrow(
                 throwMsg === true ? undefined : throwMsg,
               );
             } else {
+              jest.spyOn(console, "warn").mockImplementation(() => {});
+
               const result = run();
+
+              if (
+                options.warns &&
+                (!process.env.IS_PUBLISH || !options.noWarnInPublishBuild)
+              ) {
+                expect(console.warn).toHaveBeenCalledWith(
+                  expect.stringContaining(options.warns),
+                );
+              } else {
+                expect(console.warn).not.toHaveBeenCalled();
+              }
 
               if (options.sourceMaps) {
                 try {
                   expect(result.map).toEqual(task.sourceMap);
                 } catch (e) {
-                  if (!process.env.OVERWRITE || !task.sourceMapFile) throw e;
+                  if (!process.env.OVERWRITE && task.sourceMap) throw e;
                   console.log(`Updated test file: ${task.sourceMapFile.loc}`);
                   fs.writeFileSync(
                     task.sourceMapFile.loc,
@@ -877,6 +1524,11 @@ suites.forEach(function (testSuite) {
               } else {
                 try {
                   expect(result.code).toBe(expected.code);
+                  if (!options.expectedReParseError) {
+                    expect(() => {
+                      parse(result.code, parserOpts);
+                    }).not.toThrow();
+                  }
                 } catch (e) {
                   if (!process.env.OVERWRITE) throw e;
                   console.log(`Updated test file: ${expected.loc}`);

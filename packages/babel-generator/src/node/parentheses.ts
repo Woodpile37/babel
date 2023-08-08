@@ -49,6 +49,7 @@ import {
   isVariableDeclarator,
   isWhileStatement,
   isYieldExpression,
+  isTSSatisfiesExpression,
 } from "@babel/types";
 import type * as t from "@babel/types";
 const PRECEDENCE = {
@@ -87,6 +88,14 @@ const enum CheckParam {
   forHead = 1 << 3,
   forInHead = 1 << 4,
   forOfHead = 1 << 5,
+}
+
+function isTSTypeExpression(node: t.Node) {
+  return (
+    isTSAsExpression(node) ||
+    isTSSatisfiesExpression(node) ||
+    isTSTypeAssertion(node)
+  );
 }
 
 const isClassExtendsClause = (
@@ -225,9 +234,10 @@ export function TSAsExpression() {
   return true;
 }
 
-export function TSTypeAssertion() {
-  return true;
-}
+export {
+  TSAsExpression as TSSatisfiesExpression,
+  TSAsExpression as TSTypeAssertion,
+};
 
 export function TSUnionType(node: t.TSUnionType, parent: t.Node): boolean {
   return (
@@ -274,7 +284,7 @@ export function SequenceExpression(
   parent: t.Node,
 ): boolean {
   if (
-    // Although parentheses wouldn"t hurt around sequence
+    // Although parentheses wouldn't hurt around sequence
     // expressions in the head of for loops, traditional style
     // dictates that e.g. i++, j++ should not be wrapped with
     // parentheses.
@@ -367,8 +377,7 @@ export function ConditionalExpression(
     isBinary(parent) ||
     isConditionalExpression(parent, { test: node }) ||
     isAwaitExpression(parent) ||
-    isTSTypeAssertion(parent) ||
-    isTSAsExpression(parent)
+    isTSTypeExpression(parent)
   ) {
     return true;
   }
@@ -403,6 +412,7 @@ export function LogicalExpression(
   node: t.LogicalExpression,
   parent: t.Node,
 ): boolean {
+  if (isTSTypeExpression(parent)) return true;
   switch (node.operator) {
     case "||":
       if (!isLogicalExpression(parent)) return false;

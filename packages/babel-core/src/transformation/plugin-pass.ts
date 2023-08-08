@@ -38,10 +38,6 @@ export default class PluginPass {
     return this.file.addHelper(name);
   }
 
-  addImport() {
-    return this.file.addImport();
-  }
-
   buildCodeFrameError(
     node: NodeLocation | undefined | null,
     msg: string,
@@ -52,9 +48,14 @@ export default class PluginPass {
 }
 
 if (!process.env.BABEL_8_BREAKING) {
-  (PluginPass as any).prototype.getModuleName = function getModuleName():
-    | string
-    | undefined {
+  (PluginPass as any).prototype.getModuleName = function getModuleName(
+    this: PluginPass,
+  ): string | undefined {
     return this.file.getModuleName();
+  };
+  (PluginPass as any).prototype.addImport = function addImport(
+    this: PluginPass,
+  ): void {
+    this.file.addImport();
   };
 }

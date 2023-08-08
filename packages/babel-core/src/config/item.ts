@@ -37,6 +37,8 @@ export function* createConfigItem(
   return createItemFromDescriptor(descriptor);
 }
 
+const CONFIG_ITEM_BRAND = Symbol.for("@babel/core@7 - ConfigItem");
+
 export function getItemDescriptor(item: unknown): UnloadedDescriptor | void {
   if ((item as any)?.[CONFIG_ITEM_BRAND]) {
     return (item as ConfigItem)._descriptor;
@@ -46,8 +48,6 @@ export function getItemDescriptor(item: unknown): UnloadedDescriptor | void {
 }
 
 export type { ConfigItem };
-
-const CONFIG_ITEM_BRAND = Symbol.for("@babel/core@7 - ConfigItem");
 
 /**
  * A public representation of a plugin/preset that will _eventually_ be load.
@@ -64,7 +64,7 @@ class ConfigItem {
    */
   _descriptor: UnloadedDescriptor;
 
-  // TODO(Babel 8): Check if this symbol needs to be updated
+  // TODO(Babel 9): Check if this symbol needs to be updated
   /**
    * Used to detect ConfigItem instances from other Babel instances.
    */

@@ -35,6 +35,9 @@ module.exports = {
     {
       files: ["**/*.ts"],
       parser: "@typescript-eslint/parser",
+      parserOptions: {
+        project: "./tsconfig.json",
+      },
       plugins: ["@typescript-eslint"],
       rules: {
         "no-unused-vars": "off",
@@ -43,7 +46,30 @@ module.exports = {
         "@typescript-eslint/no-dupe-class-members": "error",
         "no-undef": "off",
         "no-redeclare": "off",
-        "@babel/development-internal/disallow-ts-ignore": "error",
+        "@typescript-eslint/ban-ts-comment": [
+          "error",
+          {
+            "ts-ignore": { descriptionFormat: "^\\(Babel 7 vs Babel 8\\) .+$" },
+          },
+        ],
+        "@typescript-eslint/consistent-type-imports": [
+          "error",
+          { disallowTypeAnnotations: false },
+        ],
+        "@typescript-eslint/no-use-before-define": [
+          "error",
+          {
+            functions: false,
+            classes: false,
+            allowNamedExports: true,
+          },
+        ],
+        "@typescript-eslint/no-unnecessary-type-assertion": "error",
+        "@typescript-eslint/no-confusing-void-expression": [
+          "error",
+          { ignoreArrowShorthand: true },
+        ],
+        "@typescript-eslint/no-import-type-side-effects": "error",
       },
     },
     {
@@ -165,7 +191,7 @@ module.exports = {
       },
     },
     {
-      files: ["scripts/**/*.js"],
+      files: ["scripts/**/*.{js,cjs}"],
       rules: {
         "import/no-extraneous-dependencies": ["error", { packageDir: "." }],
       },

@@ -68,14 +68,20 @@ export default declare(api => {
     }
   }
 
-  function wrapInFlowComment(path: NodePath) {
+  function wrapInFlowComment<
+    N extends
+      | t.ClassProperty
+      | t.ExportNamedDeclaration
+      | t.Flow
+      | t.ImportDeclaration
+      | t.ExportDeclaration
+      | t.ImportSpecifier
+      | t.ImportDeclaration,
+  >(path: NodePath<N>) {
     attachComment({
       ofPath: path,
-      comments: generateComment(
-        path,
-        // @ts-expect-error
-        path.parent.optional,
-      ),
+      // @ts-expect-error optional may not exist in path.parent
+      comments: generateComment(path, path.parent.optional),
     });
   }
 
@@ -137,9 +143,9 @@ export default declare(api => {
       AssignmentPattern: {
         exit({ node }) {
           const { left } = node;
-          // @ts-expect-error optional is not in ObjectPattern
+          // @ts-expect-error optional is not in TSAsExpression
           if (left.optional) {
-            // @ts-expect-error optional is not in ObjectPattern
+            // @ts-expect-error optional is not in TSAsExpression
             left.optional = false;
           }
         },
@@ -232,7 +238,6 @@ export default declare(api => {
             ofPath: path.get("typeAnnotation"),
             toPath: path,
             optional:
-              // @ts-expect-error optional is not in ObjectPattern
               node.optional ||
               // @ts-expect-error Fixme: optional is not in t.TypeAnnotation
               node.typeAnnotation.optional,

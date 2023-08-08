@@ -1,7 +1,24 @@
 import * as virtualTypes from "./path/lib/virtual-types";
-import type { Wrapper } from "./path/lib/virtual-types";
-import { DEPRECATED_KEYS, FLIPPED_ALIAS_KEYS, TYPES } from "@babel/types";
-import type { NodePath, Visitor } from "./index";
+import {
+  DEPRECATED_KEYS,
+  DEPRECATED_ALIASES,
+  FLIPPED_ALIAS_KEYS,
+  TYPES,
+  __internal__deprecationWarning as deprecationWarning,
+} from "@babel/types";
+import type { ExplodedVisitor, NodePath, Visitor } from "./index";
+
+type VIRTUAL_TYPES = keyof typeof virtualTypes;
+function isVirtualType(type: string): type is VIRTUAL_TYPES {
+  return type in virtualTypes;
+}
+
+export function isExplodedVisitor(
+  visitor: Visitor,
+): visitor is ExplodedVisitor {
+  // @ts-expect-error _exploded is not defined on non-exploded Visitor
+  return visitor?._exploded;
+}
 
 /**
  * explode() will take a visitor object with all of the various shorthands
@@ -19,12 +36,13 @@ import type { NodePath, Visitor } from "./index";
  * * `enter` and `exit` functions are wrapped in arrays, to ease merging of
  *   visitors
  */
-export function explode(visitor: Visitor) {
-  if (visitor._exploded) return visitor;
+export function explode<S>(visitor: Visitor<S>): ExplodedVisitor<S> {
+  if (isExplodedVisitor(visitor)) return visitor;
+  // @ts-expect-error `visitor` will be cast to ExplodedVisitor by this function
   visitor._exploded = true;
 
   // normalise pipes
-  for (const nodeType of Object.keys(visitor)) {
+  for (const nodeType of Object.keys(visitor) as (keyof Visitor)[]) {
     if (shouldIgnoreKey(nodeType)) continue;
 
     const parts: Array<string> = nodeType.split("|");
@@ -34,6 +52,7 @@ export function explode(visitor: Visitor) {
     delete visitor[nodeType];
 
     for (const part of parts) {
+      // @ts-expect-error part will be verified by `verify` later
       visitor[part] = fns;
     }
   }
@@ -43,6 +62,7 @@ export function explode(visitor: Visitor) {
 
   // make sure there's no __esModule type since this is because we're using loose mode
   // and it sets __esModule to be enumerable on all modules :(
+  // @ts-expect-error ESModule interop
   delete visitor.__esModule;
 
   // ensure visitors are objects
@@ -55,26 +75,26 @@ export function explode(visitor: Visitor) {
   for (const nodeType of Object.keys(visitor)) {
     if (shouldIgnoreKey(nodeType)) continue;
 
-    // @ts-expect-error Fixme: nodeType could index virtualTypes
-    const wrapper = virtualTypes[nodeType];
-    if (!wrapper) continue;
+    if (!isVirtualType(nodeType)) continue;
 
     // wrap all the functions
     const fns = visitor[nodeType];
     for (const type of Object.keys(fns)) {
-      // @ts-expect-error manipulating visitors
-      fns[type] = wrapCheck(wrapper, fns[type]);
+      // @ts-expect-error normalised as VisitNodeObject
+      fns[type] = wrapCheck(nodeType, fns[type]);
     }
 
     // clear it from the visitor
     delete visitor[nodeType];
 
-    if (wrapper.types) {
-      for (const type of wrapper.types) {
+    const types = virtualTypes[nodeType];
+    if (types !== null) {
+      for (const type of types) {
         // merge the visitor if necessary or just put it back in
         if (visitor[type]) {
           mergePair(visitor[type], fns);
         } else {
+          // @ts-expect-error Expression produces too complex union
           visitor[type] = fns;
         }
       }
@@ -84,23 +104,25 @@ export function explode(visitor: Visitor) {
   }
 
   // add aliases
-  for (const nodeType of Object.keys(visitor)) {
+  for (const nodeType of Object.keys(visitor) as (keyof Visitor)[]) {
     if (shouldIgnoreKey(nodeType)) continue;
 
-    const fns = visitor[nodeType];
+    let aliases = FLIPPED_ALIAS_KEYS[nodeType];
 
-    let aliases: Array<string> | undefined = FLIPPED_ALIAS_KEYS[nodeType];
-
-    const deprecatedKey = DEPRECATED_KEYS[nodeType];
-    if (deprecatedKey) {
-      console.trace(
-        `Visitor defined for ${nodeType} but it has been renamed to ${deprecatedKey}`,
-      );
+    if (nodeType in DEPRECATED_KEYS) {
+      const deprecatedKey = DEPRECATED_KEYS[nodeType];
+      deprecationWarning(nodeType, deprecatedKey, "Visitor ");
       aliases = [deprecatedKey];
+    } else if (nodeType in DEPRECATED_ALIASES) {
+      const deprecatedAlias =
+        DEPRECATED_ALIASES[nodeType as keyof typeof DEPRECATED_ALIASES];
+      deprecationWarning(nodeType, deprecatedAlias, "Visitor ");
+      aliases = FLIPPED_ALIAS_KEYS[deprecatedAlias];
     }
 
     if (!aliases) continue;
 
+    const fns = visitor[nodeType];
     // clear it from the visitor
     delete visitor[nodeType];
 
@@ -109,6 +131,7 @@ export function explode(visitor: Visitor) {
       if (existing) {
         mergePair(existing, fns);
       } else {
+        // @ts-expect-error Expression produces a union type that is too complex to represent.
         visitor[alias] = { ...fns };
       }
     }
@@ -123,10 +146,13 @@ export function explode(visitor: Visitor) {
     );
   }
 
-  return visitor;
+  // @ts-expect-error explosion has been performed
+  return visitor as ExplodedVisitor;
 }
 
 export function verify(visitor: Visitor) {
+  // @ts-expect-error _verified is not defined on non-verified Visitor.
+  // TODO: unify _verified and _exploded.
   if (visitor._verified) return;
 
   if (typeof visitor === "function") {
@@ -136,7 +162,7 @@ export function verify(visitor: Visitor) {
     );
   }
 
-  for (const nodeType of Object.keys(visitor)) {
+  for (const nodeType of Object.keys(visitor) as (keyof Visitor)[]) {
     if (nodeType === "enter" || nodeType === "exit") {
       validateVisitorMethods(nodeType, visitor[nodeType]);
     }
@@ -168,6 +194,8 @@ export function verify(visitor: Visitor) {
     }
   }
 
+  // @ts-expect-error _verified is not defined on non-verified Visitor.
+  // TODO: unify _verified and _exploded.
   visitor._verified = true;
 }
 
@@ -204,7 +232,7 @@ export function merge(
 
     explode(visitor);
 
-    for (const type of Object.keys(visitor)) {
+    for (const type of Object.keys(visitor) as (keyof Visitor)[]) {
       let visitorType = visitor[type];
 
       // if we have state or wrapper then overload the callbacks to take it
@@ -212,7 +240,8 @@ export function merge(
         visitorType = wrapWithStateOrWrapper(visitorType, state, wrapper);
       }
 
-      const nodeVisitor = (rootVisitor[type] = rootVisitor[type] || {});
+      // @ts-expect-error: Expression produces a union type that is too complex to represent.
+      const nodeVisitor = (rootVisitor[type] ||= {});
       mergePair(nodeVisitor, visitorType);
     }
   }
@@ -227,19 +256,18 @@ function wrapWithStateOrWrapper<State>(
 ) {
   const newVisitor: Visitor = {};
 
-  for (const key of Object.keys(oldVisitor)) {
+  for (const key of Object.keys(oldVisitor) as (keyof Visitor<State>)[]) {
     let fns = oldVisitor[key];
 
     // not an enter/exit array of callbacks
     if (!Array.isArray(fns)) continue;
 
-    // @ts-expect-error manipulating visitors
     fns = fns.map(function (fn) {
       let newFn = fn;
 
       if (state) {
         newFn = function (path: NodePath) {
-          return fn.call(state, path, state);
+          fn.call(state, path, state);
         };
       }
 
@@ -256,6 +284,7 @@ function wrapWithStateOrWrapper<State>(
       return newFn;
     });
 
+    // @ts-expect-error: Expression produces a union type that is too complex to represent.
     newVisitor[key] = fns;
   }
 
@@ -263,26 +292,25 @@ function wrapWithStateOrWrapper<State>(
 }
 
 function ensureEntranceObjects(obj: Visitor) {
-  for (const key of Object.keys(obj)) {
+  for (const key of Object.keys(obj) as (keyof Visitor)[]) {
     if (shouldIgnoreKey(key)) continue;
 
     const fns = obj[key];
     if (typeof fns === "function") {
+      // @ts-expect-error: Expression produces a union type that is too complex to represent.
       obj[key] = { enter: fns };
     }
   }
 }
 
 function ensureCallbackArrays(obj: Visitor) {
-  // @ts-expect-error normalizing enter property
   if (obj.enter && !Array.isArray(obj.enter)) obj.enter = [obj.enter];
-  // @ts-expect-error normalizing exit property
   if (obj.exit && !Array.isArray(obj.exit)) obj.exit = [obj.exit];
 }
 
-function wrapCheck(wrapper: Wrapper, fn: Function) {
+function wrapCheck(nodeType: VIRTUAL_TYPES, fn: Function) {
   const newFn = function (this: unknown, path: NodePath) {
-    if (wrapper.checkPath(path)) {
+    if (path[`is${nodeType}`]()) {
       return fn.apply(this, arguments);
     }
   };
@@ -290,7 +318,16 @@ function wrapCheck(wrapper: Wrapper, fn: Function) {
   return newFn;
 }
 
-function shouldIgnoreKey(key: string) {
+function shouldIgnoreKey(
+  key: string,
+): key is
+  | "enter"
+  | "exit"
+  | "shouldSkip"
+  | "denylist"
+  | "noScope"
+  | "skipKeys"
+  | "blacklist" {
   // internal/hidden key
   if (key[0] === "_") return true;
 
@@ -298,14 +335,14 @@ function shouldIgnoreKey(key: string) {
   if (key === "enter" || key === "exit" || key === "shouldSkip") return true;
 
   // ignore other options
-  if (
-    key === "denylist" ||
-    key === "noScope" ||
-    key === "skipKeys" ||
-    // TODO: Remove in Babel 8
-    key === "blacklist"
-  ) {
+  if (key === "denylist" || key === "noScope" || key === "skipKeys") {
     return true;
+  }
+
+  if (!process.env.BABEL_8_BREAKING) {
+    if (key === "blacklist") {
+      return true;
+    }
   }
 
   return false;

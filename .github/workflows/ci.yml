@@ -5,6 +5,10 @@ on: [push, pull_request]
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   prepare-yarn-cache:
     name: Prepare Cache
@@ -15,7 +19,8 @@ jobs:
       - name: Use Node.js latest
         uses: actions/setup-node@v3
         with:
-          node-version: "*"
+          node-version: latest
+          check-latest: true
           cache: "yarn"
       - name: 'Check or update Yarn cache (fix w/ "yarn install")'
         env:
@@ -34,7 +39,8 @@ jobs:
       - name: Use Node.js latest
         uses: actions/setup-node@v3
         with:
-          node-version: "*"
+          node-version: latest
+          check-latest: true
           cache: "yarn"
       - name: 'Check for unmet constraints (fix w/ "yarn constraints --fix")'
         run: |
@@ -56,14 +62,15 @@ jobs:
       - name: Use Node.js latest
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: latest
+          check-latest: true
           cache: "yarn"
       - name: Generate coverage report
         run: |
           make -j test-ci-coverage
           yarn test:esm
       - name: Upload coverage report
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v3
 
   test-esm:
     name: Test ESM version
@@ -75,16 +82,15 @@ jobs:
       - name: Use Node.js latest
         uses: actions/setup-node@v3
         with:
-          node-version: "*"
+          node-version: latest
+          check-latest: true
           cache: "yarn"
       - name: Use ESM and build
         run: make use-esm
         env:
           USE_ESM: true
       - name: Test
-        # Hack: --color has supports-color@5 returned true for GitHub CI
-        # Remove once `chalk` is bumped to 4.0.
-        run: yarn jest --ci --color
+        run: yarn jest --ci
         env:
           BABEL_ENV: test
           USE_ESM: true
@@ -102,29 +108,36 @@ jobs:
       - name: Use Node.js latest
         uses: actions/setup-node@v3
         with:
-          node-version: "*"
+          node-version: latest
+          check-latest: true
           cache: "yarn"
       - name: Build babel artifacts
         run: |
-          BABEL_ENV=test-legacy make -j build-standalone-ci
+          make -j build-standalone-ci
         env:
+          BABEL_ENV: test-legacy
           BABEL_8_BREAKING: false
           STRIP_BABEL_8_FLAG: true
+      - name: Build Makefile.js
+        run: |
+          node ./scripts/pack-script.js
+      - name: Generate readmes
+        run: |
+          make generate-readme
       - name: Ensure cwd does not contain uncommitted changes
         run: |
-          ./scripts/assert-dir-git-clean.sh
+          node ./scripts/assert-dir-git-clean.js build
+      - name: Prepare artifacts
+        run: |
+          ./scripts/get-artifact-files.sh | tar --null -cvf babel-artifact.tar --files-from=-
       - uses: actions/upload-artifact@v3
         with:
           name: babel-artifact
-          path: |
-            codemods/*/lib/**/*
-            eslint/*/lib/**/*
-            packages/*/lib/**/*
-            packages/babel-standalone/*.js
-            !**/node_modules/**
+          path: babel-artifact.tar
+          retention-days: 5
 
   build-windows:
-    name: Build Babel Artifacts On Windows
+    name: Build Babel Artifacts on Windows
     runs-on: windows-latest
     # Yarn PnP does not support native ESM yet (https://github.com/yarnpkg/berry/issues/638)
     # env:
@@ -135,19 +148,20 @@ jobs:
       - name: Use Node.js latest
         uses: actions/setup-node@v3
         with:
-          node-version: "*"
+          node-version: latest
+          check-latest: true
           cache: "yarn"
       - name: Build babel artifacts
         shell: bash
         run: |
-          BABEL_ENV=test-legacy make -j build-standalone-ci
+          make -j build-standalone-ci
         env:
+          BABEL_ENV: test-legacy
           BABEL_8_BREAKING: false
           STRIP_BABEL_8_FLAG: true
       - name: Ensure cwd does not contain uncommitted changes
-        shell: bash
         run: |
-          ./scripts/assert-dir-git-clean.sh
+          node ./scripts/assert-dir-git-clean.js build
 
   lint:
     name: Lint
@@ -159,15 +173,21 @@ jobs:
       - name: Use Node.js latest
         uses: actions/setup-node@v3
         with:
-          node-version: "*"
+          node-version: latest
+          check-latest: true
           cache: "yarn"
       - name: Install
         run: yarn install
       - uses: actions/download-artifact@v3
         with:
           name: babel-artifact
+      - name: Extract artifacts
+        run: tar -xf babel-artifact.tar; rm babel-artifact.tar
       - name: Lint
-        run: make -j tscheck flowcheck-ci lint-ci
+        run: make -j prepublish-prepare-dts lint-ci
+      - name: Ensure cwd does not contain uncommitted changes
+        run: |
+          node ./scripts/assert-dir-git-clean.js "prepublish-prepare-dts lint-ci"
 
   test:
     name: Test on Node.js # GitHub will add ${{ matrix.node-version }} to this title
@@ -176,14 +196,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [16, 14, 12, 10, 8, 6]
+        node-version: [18, 16, 14, 12, 10, 8, 6]
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
       - name: Use Node.js latest # Run yarn on latest node
         uses: actions/setup-node@v3
         with:
-          node-version: "*" # Build Babel on latest node LTS versions
+          node-version: latest
+          check-latest: true
           cache: "yarn"
       - name: Install
         run: |
@@ -191,65 +212,103 @@ jobs:
       - name: Downgrade Jest for node <= 10
         if: matrix.node-version == '6' || matrix.node-version == '8' || matrix.node-version == '10'
         run: |
-          yarn remove jest
-          yarn add --dev jest@24
+          yarn up jest@24
+          # Deduplicate dependencies, because duplicate copies of graceful-fs cause
+          # problems with the "path" module: https://github.com/facebook/jest/issues/9656
+          yarn dedupe
+      - name: Downgrade Jest and jest-light-runner for node == 12
+        if: matrix.node-version == '12'
+        run: |
+          yarn up jest@28
+          yarn up jest-light-runner@0.3.0
           # Deduplicate dependencies, because duplicate copies of graceful-fs cause
           # problems with the "path" module: https://github.com/facebook/jest/issues/9656
           yarn dedupe
       - uses: actions/download-artifact@v3
         with:
           name: babel-artifact
-      - name: Generate runtime helpers
-        run: |
-          make build-plugin-transform-runtime-dist
+      - name: Extract artifacts
+        run: tar -xf babel-artifact.tar; rm babel-artifact.tar
       - name: Use Node.js ${{ matrix.node-version }} # Checkout node version for test executor
         uses: actions/setup-node@v3
         with:
           node-version: ${{ matrix.node-version }}
       - name: Test on node.js ${{ matrix.node-version }}
-        # Hack: --color has supports-color@5 returned true for GitHub CI
-        # Remove once `chalk` is bumped to 4.0.
-
         # Todo(Babel 8): Jest execution path is hardcoded because Yarn 2 does not support node 6
         run: |
-          BABEL_ENV=test node --max-old-space-size=4096 ./node_modules/.bin/jest --ci --color
+          BABEL_ENV=test node --max-old-space-size=4096 ./node_modules/.bin/jest --ci
         env:
           TEST_FUZZ: "${{ (matrix.node-version == '6' || matrix.node-version == '8' || matrix.node-version == '10') && 'false' || 'true' }}"
       - name: Use Node.js latest # For `yarn version` in post actions of the first actions/setup-node
         if: matrix.node-version == '6' || matrix.node-version == '8' || matrix.node-version == '10'
         uses: actions/setup-node@v3
         with:
-          node-version: "*"
+          node-version: latest
 
-  test-babel-8-breaking:
-    name: Test Babel 8 breaking changes
+  build-babel8:
+    name: Build Babel 8 Artifacts
     needs: prepare-yarn-cache
     runs-on: ubuntu-latest
+    # Yarn PnP does not support native ESM yet (https://github.com/yarnpkg/berry/issues/638)
+    # env:
+    #    YARN_NODE_LINKER: pnp # use pnp linker for better linking performance and stricter checks
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      - name: Use Node.js 14.17
+      - name: Use Node.js latest
         uses: actions/setup-node@v3
         with:
-          node-version: "14.17" # Node.js 14.17 is the first LTS supported by Babel 8
+          node-version: latest
+          check-latest: true
           cache: "yarn"
-      - name: Install and build
-        run: make -j bootstrap
+      - name: Build babel artifacts
+        run: |
+          make -j build-standalone-ci
         env:
-          BABEL_ENV: test
+          BABEL_ENV: test-legacy
           BABEL_8_BREAKING: true
           STRIP_BABEL_8_FLAG: true
       - name: Lint
-        run: make -j tscheck flowcheck-ci lint-ci
+        run: make -j tscheck lint-ci
         env:
           BABEL_ENV: test
           BABEL_8_BREAKING: true
           BABEL_TYPES_8_BREAKING: true
-      - name: Test
-        # Hack: --color has supports-color@5 returned true for GitHub CI
-        # Remove once `chalk` is bumped to 4.0.
+      - name: Prepare artifacts
         run: |
-          yarn jest --ci --color
+          ./scripts/get-artifact-files.sh | tar --null -cvf babel-artifact.tar --files-from=-
+      - uses: actions/upload-artifact@v3
+        with:
+          name: babel8-artifact
+          path: babel-artifact.tar
+          retention-days: 5
+
+  test-babel-8-breaking:
+    name: Test Babel 8 breaking changes on
+    needs: build-babel8
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Use Node.js 16.20
+        uses: actions/setup-node@v3
+        with:
+          node-version: "16.20" # Node.js 16.20 is the first LTS supported by Babel 8
+          cache: "yarn"
+      - name: Install
+        run: |
+          yarn install
+      - uses: actions/download-artifact@v3
+        with:
+          name: babel8-artifact
+      - name: Extract artifacts
+        run: tar -xf babel-artifact.tar; rm babel-artifact.tar
+      - name: Test
+        run: |
+          yarn jest --ci
           yarn test:esm
         env:
           BABEL_ENV: test
@@ -266,20 +325,18 @@ jobs:
       - name: Use Node.js 18
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: latest
+          check-latest: true
           cache: "yarn"
       - name: Install
         run: yarn install
       - uses: actions/download-artifact@v3
         with:
           name: babel-artifact
-      - name: Generate runtime helpers
-        run: |
-          make build-plugin-transform-runtime-dist
+      - name: Extract artifacts
+        run: tar -xf babel-artifact.tar; rm babel-artifact.tar
       - name: Test on Windows
-        # Hack: --color has supports-color@5 returned true for GitHub CI
-        # Remove once `chalk` is bumped to 4.0.
-        run: yarn jest --ci --color
+        run: yarn jest --ci
         env:
           BABEL_ENV: test
 
@@ -293,13 +350,16 @@ jobs:
       - name: Use Node.js latest
         uses: actions/setup-node@v3
         with:
-          node-version: "*"
+          node-version: latest
+          check-latest: true
           cache: "yarn"
       - name: Install
         run: yarn install
       - uses: actions/download-artifact@v3
         with:
           name: babel-artifact
+      - name: Extract artifacts
+        run: tar -xf babel-artifact.tar; rm babel-artifact.tar
       - name: Download tests
         run: make -j bootstrap-flow bootstrap-typescript bootstrap-test262
       - name: Run Test262 Tests
@@ -319,7 +379,8 @@ jobs:
       - name: Use Node.js latest
         uses: actions/setup-node@v3
         with:
-          node-version: "*"
+          node-version: latest
+          check-latest: true
           cache: "yarn"
       # See https://github.com/babel/babel/pull/12906
       - name: Support self-references on old Node.js
@@ -345,15 +406,14 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: babel-artifact
-      - name: Generate runtime helpers
-        run: |
-          make build-plugin-transform-runtime-dist
+      - name: Extract artifacts
+        run: tar -xf babel-artifact.tar; rm babel-artifact.tar
       - name: Generate absoluteRuntime tests
         run: yarn test:runtime:generate-absolute-runtime
       - name: Test bundlers
         run: yarn test:runtime:bundlers
-      - name: Test Node.js
-        run: yarn test:runtime:node
+      - name: Test Node.js latest
+        run: node test/runtime-integration/node.cjs
       - name: Use Node.js 10
         uses: actions/setup-node@v3
         with:
@@ -365,52 +425,219 @@ jobs:
         with:
           node-version: "12.0" # quoted, otherwise it's just 13
       - name: Test Node.js 12.0
-        run: yarn test:runtime:node
+        run: node test/runtime-integration/node.cjs
       - name: Use Node.js 12.17
         uses: actions/setup-node@v3
         with:
           node-version: 12.17
       - name: Test Node.js  12.17
-        run: yarn test:runtime:node
+        run: node test/runtime-integration/node.cjs
       - name: Use Node.js 13.0
         uses: actions/setup-node@v3
         with:
           node-version: "13.0" # quoted, otherwise it's just 13
       - name: Test Node.js 13.0
-        run: yarn test:runtime:node
+        run: node test/runtime-integration/node.cjs
       - name: Use Node.js 13.2
         uses: actions/setup-node@v3
         with:
           node-version: 13.2
       - name: Test Node.js 13.2
-        run: yarn test:runtime:node
+        run: node test/runtime-integration/node.cjs
       - name: Use Node.js 13.6
         uses: actions/setup-node@v3
         with:
           node-version: 13.6
       - name: Test Node.js 13.6
-        run: yarn test:runtime:node
+        run: node test/runtime-integration/node.cjs
       - name: Use Node.js 13.7
         uses: actions/setup-node@v3
         with:
           node-version: 13.7
       - name: Test Node.js 13.7
-        run: yarn test:runtime:node
+        run: node test/runtime-integration/node.cjs
       - name: Use Node.js 14.2
         uses: actions/setup-node@v3
         with:
           node-version: 14.2
       - name: Test Node.js 14.2
-        run: yarn test:runtime:node
+        run: node test/runtime-integration/node.cjs
       - name: Use Node.js 16.5
         uses: actions/setup-node@v3
         with:
           node-version: 16.5
       - name: Test Node.js 16.5
-        run: yarn test:runtime:node
+        run: node test/runtime-integration/node.cjs
       - name: Use Node.js 16.6
         uses: actions/setup-node@v3
         with:
           node-version: 16.6
       - name: Test Node.js 16.6
-        run: yarn test:runtime:node
+        run: node test/runtime-integration/node.cjs
+
+  eslint7-test:
+    name: Test @babel/eslint-* with ESLint 7.5.0
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Use Node.js latest
+        uses: actions/setup-node@v3
+        with:
+          node-version: latest
+          check-latest: true
+          cache: "yarn"
+      - name: Install
+        run: yarn install
+      - uses: actions/download-artifact@v3
+        with:
+          name: babel-artifact
+      - name: Extract artifacts
+        run: tar -xf babel-artifact.tar; rm babel-artifact.tar
+      - name: Downgrade ESLint to 7.5.0
+        run: yarn up eslint@7.5.0
+      - name: Run babel/eslint tests
+        run: node ./node_modules/.bin/jest eslint
+
+  test262-prepare:
+    name: test262 - Prepare for running in parallel
+    runs-on: ubuntu-latest
+    if: github.repository == 'babel/babel'
+    steps:
+      - name: Checkout Babel
+        uses: actions/checkout@v3
+      - name: Use Node.js latest
+        uses: actions/setup-node@v3
+        with:
+          node-version: latest
+          check-latest: true
+      - name: Checkout test runner
+        uses: actions/checkout@v3
+        with:
+          repository: babel/babel-test262-runner
+          path: babel-test262-runner
+          ref: main
+      - name: Download test262
+        run: make bootstrap-test262
+      - name: Prepare test262 chunks
+        run: |
+          cd babel-test262-runner
+          npm ci
+          node lib/prepare-chunks 8 > ~/test262-chunks.json
+        env:
+          TEST262_PATH: ../build/test262
+      - name: Upload chunks artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: test262-chunks
+          path: ~/test262-chunks.json
+          retention-days: 3
+
+  test262:
+    name: test262
+    strategy:
+      matrix:
+        chunk: [0, 1, 2, 3, 4, 5, 6, 7]
+    runs-on: ubuntu-latest
+    needs: [build, test262-prepare]
+    steps:
+      - name: Checkout Babel
+        uses: actions/checkout@v3
+      - name: Use Node.js latest
+        uses: actions/setup-node@v3
+        with:
+          node-version: latest
+          check-latest: true
+      - name: Install
+        run: yarn install
+      - uses: actions/download-artifact@v3
+        with:
+          name: babel-artifact
+      - name: Extract artifacts
+        run: tar -xf babel-artifact.tar; rm babel-artifact.tar
+      - name: Checkout test runner
+        uses: actions/checkout@v3
+        with:
+          repository: babel/babel-test262-runner
+          path: babel-test262-runner
+          ref: main
+      - name: Install test runner
+        run: |
+          cd babel-test262-runner
+          npm ci
+          node lib/download-node
+      - name: Download test262
+        run: make bootstrap-test262
+      - name: Download chunks file
+        uses: actions/download-artifact@v3
+        with:
+          name: test262-chunks
+      - name: Run test262
+        run: |
+          cd babel-test262-runner
+          node lib/run-tests I_AM_SURE | tee ~/test262-${{ matrix.chunk }}.tap
+        env:
+          BABEL_PATH: ".."
+          TEST262_PATH: ../build/test262
+          THREADS: 4
+          CHUNKS_FILE: ../test262-chunks.json
+          CHUNK: ${{ matrix.chunk }}
+      - name: Create artifact with report results
+        uses: actions/upload-artifact@v3
+        with:
+          name: test262-result-${{ matrix.chunk }}
+          path: ~/test262-${{ matrix.chunk }}.tap
+          retention-days: 3
+
+  test262-finish:
+    name: test262 - Analyze results
+    runs-on: ubuntu-latest
+    needs: test262
+    steps:
+      - uses: actions/download-artifact@v3
+        with: { name: test262-result-0 }
+      - uses: actions/download-artifact@v3
+        with: { name: test262-result-1 }
+      - uses: actions/download-artifact@v3
+        with: { name: test262-result-2 }
+      - uses: actions/download-artifact@v3
+        with: { name: test262-result-3 }
+      - uses: actions/download-artifact@v3
+        with: { name: test262-result-4 }
+      - uses: actions/download-artifact@v3
+        with: { name: test262-result-5 }
+      - uses: actions/download-artifact@v3
+        with: { name: test262-result-6 }
+      - uses: actions/download-artifact@v3
+        with: { name: test262-result-7 }
+      - name: Merge chunk results
+        run: |
+          cat test262-0.tap test262-1.tap test262-2.tap test262-3.tap \
+              test262-4.tap test262-5.tap test262-6.tap test262-7.tap \
+            | npx tap-merge > test262.tap
+      - name: Create artifact with report results
+        uses: actions/upload-artifact@v3
+        with:
+          name: test262-result
+          path: test262.tap
+      - name: Checkout test runner
+        uses: actions/checkout@v3
+        with:
+          repository: babel/babel-test262-runner
+          path: babel-test262-runner
+          ref: main
+      - name: Download previous results
+        run: |
+          cd babel-test262-runner
+          npm ci
+          node lib/download-main-artifact/index.mjs ~/test262-main.tap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compare previous main branch & current results
+        run: |
+          cd babel-test262-runner
+          node lib/compare-results ~/test262-main.tap ../test262.tap | tee ~/diff.tap
+        # Specify bash to enable pipefail, so that "| tee" does not suppress the failure exit code.
+        # https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepsshell
+        shell: bash

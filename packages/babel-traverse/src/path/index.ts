@@ -1,5 +1,6 @@
 import type { HubInterface } from "../hub";
 import type TraversalContext from "../context";
+import type { ExplodedTraverseOptions } from "..";
 import * as virtualTypes from "./lib/virtual-types";
 import buildDebug from "debug";
 import traverse from "../index";
@@ -22,7 +23,8 @@ import * as NodePath_removal from "./removal";
 import * as NodePath_modification from "./modification";
 import * as NodePath_family from "./family";
 import * as NodePath_comments from "./comments";
-import type { NodePathAssetions } from "./generated/asserts";
+import * as NodePath_virtual_types_validator from "./lib/virtual-types-validator";
+import type { NodePathAssertions } from "./generated/asserts";
 import type { NodePathValidators } from "./generated/validators";
 
 const debug = buildDebug("babel");
@@ -50,10 +52,10 @@ class NodePath<T extends t.Node = t.Node> {
 
   contexts: Array<TraversalContext> = [];
   state: any = null;
-  opts: any = null;
+  opts: ExplodedTraverseOptions | null = null;
   // this.shouldSkip = false; this.shouldStop = false; this.removed = false;
   _traverseFlags: number = 0;
-  skipKeys: any = null;
+  skipKeys: Record<string, boolean> | null = null;
   parentPath: t.ParentMaps[T["type"]] extends null
     ? null
     : NodePath<t.ParentMaps[T["type"]]> | null = null;
@@ -61,7 +63,7 @@ class NodePath<T extends t.Node = t.Node> {
   listKey: string | null = null;
   key: string | number | null = null;
   node: T = null;
-  type: string | null = null;
+  type: T["type"] | null = null;
 
   static get({
     hub,
@@ -237,10 +239,8 @@ Object.assign(
 );
 
 if (!process.env.BABEL_8_BREAKING) {
-  // The original _guessExecutionStatusRelativeToDifferentFunctions only worked for paths in
+  // @ts-expect-error The original _guessExecutionStatusRelativeToDifferentFunctions only worked for paths in
   // different functions, but _guessExecutionStatusRelativeTo works as a replacement in those cases.
-
-  // @ts-expect-error
   NodePath.prototype._guessExecutionStatusRelativeToDifferentFunctions =
     NodePath_introspection._guessExecutionStatusRelativeTo;
 }
@@ -266,16 +266,12 @@ for (const type of t.TYPES) {
   };
 }
 
+// Register virtual types validators after base types validators
+Object.assign(NodePath.prototype, NodePath_virtual_types_validator);
+
 for (const type of Object.keys(virtualTypes) as (keyof typeof virtualTypes)[]) {
   if (type[0] === "_") continue;
-  if (t.TYPES.indexOf(type) < 0) t.TYPES.push(type);
-
-  const virtualType = virtualTypes[type];
-
-  NodePath.prototype[`is${type}`] = function (opts?: any) {
-    // @ts-expect-error checkPath will throw when type is ExistentialTypeParam/NumericLiteralTypeAnnotation
-    return virtualType.checkPath(this, opts);
-  };
+  if (!t.TYPES.includes(type)) t.TYPES.push(type);
 }
 
 type NodePathMixins = typeof NodePath_ancestry &
@@ -296,7 +292,7 @@ type NodePathMixins = typeof NodePath_ancestry &
 // assertion method
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface NodePath<T>
-  extends NodePathAssetions,
+  extends NodePathAssertions,
     NodePathValidators,
     NodePathMixins {
   /**

@@ -2,6 +2,7 @@ import is from "../validators/is";
 import isValidIdentifier from "../validators/isValidIdentifier";
 import { isKeyword, isReservedWord } from "@babel/helper-validator-identifier";
 import type * as t from "..";
+import { readStringContents } from "@babel/helper-string-parser";
 
 import {
   BINARY_OPERATORS,
@@ -69,6 +70,7 @@ defineType("AssignmentExpression", {
             "ArrayPattern",
             "ObjectPattern",
             "TSAsExpression",
+            "TSSatisfiesExpression",
             "TSTypeAssertion",
             "TSNonNullExpression",
           ),
@@ -327,6 +329,7 @@ defineType("ForInStatement", {
             "ArrayPattern",
             "ObjectPattern",
             "TSAsExpression",
+            "TSSatisfiesExpression",
             "TSTypeAssertion",
             "TSNonNullExpression",
           ),
@@ -489,6 +492,10 @@ export const patternLikeCommon = () => ({
         ),
     optional: true,
   },
+  optional: {
+    validate: assertValueType("boolean"),
+    optional: true,
+  },
   decorators: {
     validate: chain(
       assertValueType("array"),
@@ -518,10 +525,6 @@ defineType("Identifier", {
           { type: "string" },
         ),
       ),
-    },
-    optional: {
-      validate: assertValueType("boolean"),
-      optional: true,
     },
   },
   validate(parent, key, node) {
@@ -929,6 +932,7 @@ defineType("ObjectProperty", {
       "Identifier",
       "Pattern",
       "TSAsExpression",
+      "TSSatisfiesExpression",
       "TSNonNullExpression",
       "TSTypeAssertion",
     );
@@ -959,14 +963,10 @@ defineType("RestElement", {
             "ObjectPattern",
             "MemberExpression",
             "TSAsExpression",
+            "TSSatisfiesExpression",
             "TSTypeAssertion",
             "TSNonNullExpression",
           ),
-    },
-    // For Flow
-    optional: {
-      validate: assertValueType("boolean"),
-      optional: true,
     },
   },
   validate(parent: t.ArrayPattern | t.ObjectPattern, key) {
@@ -1149,7 +1149,15 @@ defineType("VariableDeclaration", {
       optional: true,
     },
     kind: {
-      validate: assertOneOf("var", "let", "const"),
+      validate: assertOneOf(
+        "var",
+        "let",
+        "const",
+        // https://github.com/tc39/proposal-explicit-resource-management
+        "using",
+        // https://github.com/tc39/proposal-async-explicit-resource-management
+        "await using",
+      ),
     },
     declarations: {
       validate: chain(
@@ -1243,6 +1251,7 @@ defineType("AssignmentPattern", {
         "ArrayPattern",
         "MemberExpression",
         "TSAsExpression",
+        "TSSatisfiesExpression",
         "TSTypeAssertion",
         "TSNonNullExpression",
       ),
@@ -1272,18 +1281,6 @@ defineType("ArrayPattern", {
         assertValueType("array"),
         assertEach(assertNodeOrValueType("null", "PatternLike", "LVal")),
       ),
-    },
-    // For TypeScript
-    decorators: {
-      validate: chain(
-        assertValueType("array"),
-        assertEach(assertNodeType("Decorator")),
-      ),
-      optional: true,
-    },
-    optional: {
-      validate: assertValueType("boolean"),
-      optional: true,
     },
   },
 });
@@ -1488,11 +1485,12 @@ defineType("ClassDeclaration", {
 });
 
 defineType("ExportAllDeclaration", {
-  visitor: ["source"],
+  builder: ["source"],
+  visitor: ["source", "attributes", "assertions"],
   aliases: [
     "Statement",
     "Declaration",
-    "ModuleDeclaration",
+    "ImportOrExportDeclaration",
     "ExportDeclaration",
   ],
   fields: {
@@ -1500,6 +1498,14 @@ defineType("ExportAllDeclaration", {
       validate: assertNodeType("StringLiteral"),
     },
     exportKind: validateOptional(assertOneOf("type", "value")),
+    attributes: {
+      optional: true,
+      validate: chain(
+        assertValueType("array"),
+        assertEach(assertNodeType("ImportAttribute")),
+      ),
+    },
+    // TODO(Babel 8): Deprecated
     assertions: {
       optional: true,
       validate: chain(
@@ -1515,12 +1521,13 @@ defineType("ExportDefaultDeclaration", {
   aliases: [
     "Statement",
     "Declaration",
-    "ModuleDeclaration",
+    "ImportOrExportDeclaration",
     "ExportDeclaration",
   ],
   fields: {
     declaration: {
       validate: assertNodeType(
+        "TSDeclareFunction",
         "FunctionDeclaration",
         "ClassDeclaration",
         "Expression",
@@ -1531,11 +1538,12 @@ defineType("ExportDefaultDeclaration", {
 });
 
 defineType("ExportNamedDeclaration", {
-  visitor: ["declaration", "specifiers", "source"],
+  builder: ["declaration", "specifiers", "source"],
+  visitor: ["declaration", "specifiers", "source", "attributes", "assertions"],
   aliases: [
     "Statement",
     "Declaration",
-    "ModuleDeclaration",
+    "ImportOrExportDeclaration",
     "ExportDeclaration",
   ],
   fields: {
@@ -1570,6 +1578,14 @@ defineType("ExportNamedDeclaration", {
         },
       ),
     },
+    attributes: {
+      optional: true,
+      validate: chain(
+        assertValueType("array"),
+        assertEach(assertNodeType("ImportAttribute")),
+      ),
+    },
+    // TODO(Babel 8): Deprecated
     assertions: {
       optional: true,
       validate: chain(
@@ -1651,6 +1667,7 @@ defineType("ForOfStatement", {
           "ArrayPattern",
           "ObjectPattern",
           "TSAsExpression",
+          "TSSatisfiesExpression",
           "TSTypeAssertion",
           "TSNonNullExpression",
         );
@@ -1677,15 +1694,28 @@ defineType("ForOfStatement", {
 });
 
 defineType("ImportDeclaration", {
-  visitor: ["specifiers", "source"],
-  aliases: ["Statement", "Declaration", "ModuleDeclaration"],
+  builder: ["specifiers", "source"],
+  visitor: ["specifiers", "source", "attributes", "assertions"],
+  aliases: ["Statement", "Declaration", "ImportOrExportDeclaration"],
   fields: {
+    attributes: {
+      optional: true,
+      validate: chain(
+        assertValueType("array"),
+        assertEach(assertNodeType("ImportAttribute")),
+      ),
+    },
+    // TODO(Babel 8): Deprecated
     assertions: {
       optional: true,
       validate: chain(
         assertValueType("array"),
         assertEach(assertNodeType("ImportAttribute")),
       ),
+    },
+    module: {
+      optional: true,
+      validate: assertValueType("boolean"),
     },
     specifiers: {
       validate: chain(
@@ -1964,15 +1994,48 @@ defineType("TemplateElement", {
   builder: ["value", "tail"],
   fields: {
     value: {
-      validate: assertShape({
-        raw: {
-          validate: assertValueType("string"),
+      validate: chain(
+        assertShape({
+          raw: {
+            validate: assertValueType("string"),
+          },
+          cooked: {
+            validate: assertValueType("string"),
+            optional: true,
+          },
+        }),
+        function templateElementCookedValidator(node: t.TemplateElement) {
+          const raw = node.value.raw;
+
+          let unterminatedCalled = false;
+
+          const error = () => {
+            // unreachable
+            throw new Error("Internal @babel/types error.");
+          };
+          const { str, firstInvalidLoc } = readStringContents(
+            "template",
+            raw,
+            0,
+            0,
+            0,
+            {
+              unterminated() {
+                unterminatedCalled = true;
+              },
+              strictNumericEscape: error,
+              invalidEscapeSequence: error,
+              numericSeparatorInEscapeSequence: error,
+              unexpectedNumericSeparator: error,
+              invalidDigit: error,
+              invalidCodePoint: error,
+            },
+          );
+          if (!unterminatedCalled) throw new Error("Invalid raw");
+
+          node.value.cooked = firstInvalidLoc ? null : str;
         },
-        cooked: {
-          validate: assertValueType("string"),
-          optional: true,
-        },
-      }),
+      ),
     },
     tail: {
       default: false,

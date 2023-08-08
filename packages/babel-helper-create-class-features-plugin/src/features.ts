@@ -2,20 +2,29 @@ import type { File, types as t } from "@babel/core";
 import type { NodePath } from "@babel/traverse";
 import { hasOwnDecorators } from "./decorators";
 
-export const FEATURES = Object.freeze({
-  //classes: 1 << 0,
-  fields: 1 << 1,
-  privateMethods: 1 << 2,
-  // TODO(Babel 8): Remove this
-  decorators: 1 << 3,
-  privateIn: 1 << 4,
-  staticBlocks: 1 << 5,
-});
+export const FEATURES = Object.freeze(
+  process.env.BABEL_8_BREAKING
+    ? {
+        //classes: 1 << 0,
+        fields: 1 << 1,
+        privateMethods: 1 << 2,
+        privateIn: 1 << 3,
+        staticBlocks: 1 << 4,
+      }
+    : {
+        //classes: 1 << 0,
+        fields: 1 << 1,
+        privateMethods: 1 << 2,
+        decorators: 1 << 3,
+        privateIn: 1 << 4,
+        staticBlocks: 1 << 5,
+      },
+);
 
 const featuresSameLoose = new Map([
-  [FEATURES.fields, "@babel/plugin-proposal-class-properties"],
-  [FEATURES.privateMethods, "@babel/plugin-proposal-private-methods"],
-  [FEATURES.privateIn, "@babel/plugin-proposal-private-property-in-object"],
+  [FEATURES.fields, "@babel/plugin-transform-class-properties"],
+  [FEATURES.privateMethods, "@babel/plugin-transform-private-methods"],
+  [FEATURES.privateIn, "@babel/plugin-transform-private-property-in-object"],
 ]);
 
 // We can't use a symbol because this needs to always be the same, even if
@@ -49,14 +58,14 @@ export function enableFeature(file: File, feature: number, loose: boolean) {
   if (!hasFeature(file, feature) || canIgnoreLoose(file, feature)) {
     file.set(featuresKey, file.get(featuresKey) | feature);
     if (
-      // @ts-expect-error
+      // @ts-expect-error comparing loose with internal private magic string
       loose ===
       "#__internal__@babel/preset-env__prefer-true-but-false-is-ok-if-it-prevents-an-error"
     ) {
       setLoose(file, feature, true);
       file.set(looseLowPriorityKey, file.get(looseLowPriorityKey) | feature);
     } else if (
-      // @ts-expect-error
+      // @ts-expect-error comparing loose with internal private magic string
       loose ===
       "#__internal__@babel/preset-env__prefer-false-but-true-is-ok-if-it-prevents-an-error"
     ) {
@@ -79,9 +88,9 @@ export function enableFeature(file: File, feature: number, loose: boolean) {
       continue;
     } else if (resolvedLoose === !loose) {
       throw new Error(
-        "'loose' mode configuration must be the same for @babel/plugin-proposal-class-properties, " +
-          "@babel/plugin-proposal-private-methods and " +
-          "@babel/plugin-proposal-private-property-in-object (when they are enabled).",
+        "'loose' mode configuration must be the same for @babel/plugin-transform-class-properties, " +
+          "@babel/plugin-transform-private-methods and " +
+          "@babel/plugin-transform-private-property-in-object (when they are enabled).",
       );
     } else {
       resolvedLoose = loose;
@@ -97,8 +106,8 @@ export function enableFeature(file: File, feature: number, loose: boolean) {
           `Though the "loose" option was set to "${!resolvedLoose}" in your @babel/preset-env ` +
             `config, it will not be used for ${name} since the "loose" mode option was set to ` +
             `"${resolvedLoose}" for ${higherPriorityPluginName}.\nThe "loose" option must be the ` +
-            `same for @babel/plugin-proposal-class-properties, @babel/plugin-proposal-private-methods ` +
-            `and @babel/plugin-proposal-private-property-in-object (when they are enabled): you can ` +
+            `same for @babel/plugin-transform-class-properties, @babel/plugin-transform-private-methods ` +
+            `and @babel/plugin-transform-private-property-in-object (when they are enabled): you can ` +
             `silence this warning by explicitly adding\n` +
             `\t["${name}", { "loose": ${resolvedLoose} }]\n` +
             `to the "plugins" section of your Babel config.`,
@@ -172,17 +181,17 @@ export function shouldTransform(path: NodePath<t.Class>, file: File): boolean {
       "Decorators are not enabled." +
         "\nIf you are using " +
         '["@babel/plugin-proposal-decorators", { "version": "legacy" }], ' +
-        'make sure it comes *before* "@babel/plugin-proposal-class-properties" ' +
+        'make sure it comes *before* "@babel/plugin-transform-class-properties" ' +
         "and enable loose mode, like so:\n" +
         '\t["@babel/plugin-proposal-decorators", { "version": "legacy" }]\n' +
-        '\t["@babel/plugin-proposal-class-properties", { "loose": true }]',
+        '\t["@babel/plugin-transform-class-properties", { "loose": true }]',
     );
   }
 
   if (privateMethodPath && !hasFeature(file, FEATURES.privateMethods)) {
     throw privateMethodPath.buildCodeFrameError(
       "Class private methods are not enabled. " +
-        "Please add `@babel/plugin-proposal-private-methods` to your configuration.",
+        "Please add `@babel/plugin-transform-private-methods` to your configuration.",
     );
   }
 
@@ -198,14 +207,14 @@ export function shouldTransform(path: NodePath<t.Class>, file: File): boolean {
   ) {
     throw path.buildCodeFrameError(
       "Class fields are not enabled. " +
-        "Please add `@babel/plugin-proposal-class-properties` to your configuration.",
+        "Please add `@babel/plugin-transform-class-properties` to your configuration.",
     );
   }
 
   if (staticBlockPath && !hasFeature(file, FEATURES.staticBlocks)) {
     throw path.buildCodeFrameError(
       "Static class blocks are not enabled. " +
-        "Please add `@babel/plugin-proposal-class-static-block` to your configuration.",
+        "Please add `@babel/plugin-transform-class-static-block` to your configuration.",
     );
   }
 

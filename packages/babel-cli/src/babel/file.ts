@@ -8,27 +8,44 @@ import * as util from "./util";
 import type { CmdOptions } from "./options";
 import * as watcher from "./watcher";
 
+import type {
+  SectionedSourceMap,
+  SourceMapInput,
+  TraceMap,
+} from "@jridgewell/trace-mapping";
+import type { FileResult } from "@babel/core";
+
 type CompilationOutput = {
   code: string;
-  map: any;
+  map: SourceMapInput;
+  hasRawMap: boolean;
 };
 
 export default async function ({
   cliOptions,
   babelOptions,
 }: CmdOptions): Promise<void> {
-  function buildResult(fileResults: Array<any>): CompilationOutput {
-    const mapSections = [];
+  function buildResult(fileResults: Array<FileResult>): CompilationOutput {
+    const mapSections: SectionedSourceMap["sections"] = [];
 
     let code = "";
     let offset = 0;
 
+    let hasRawMap = false;
+
     for (const result of fileResults) {
       if (!result) continue;
 
+      hasRawMap = !!result.map;
+
       mapSections.push({
         offset: { line: offset, column: 0 },
-        map: result.map || emptyMap(),
+        map: result.map || {
+          version: 3,
+          names: [],
+          sources: [],
+          mappings: [],
+        },
       });
 
       code += result.code + "\n";
@@ -44,7 +61,7 @@ export default async function ({
       sections: mapSections,
     });
     // For some reason, the spec doesn't allow sourceRoot when constructing a
-    // sectioned sorucemap. But AllMap returns a regular sourcemap, we can
+    // sectioned sourcemap. But AllMap returns a regular sourcemap, we can
     // freely add to with a sourceRoot.
     map.sourceRoot = babelOptions.sourceRoot;
 
@@ -60,8 +77,10 @@ export default async function ({
     return {
       map: map,
       code: code,
+      hasRawMap: hasRawMap,
     };
   }
+
   function countNewlines(code: string): number {
     let count = 0;
     let index = -1;
@@ -70,26 +89,29 @@ export default async function ({
     }
     return count;
   }
-  function emptyMap() {
-    return {
-      version: 3,
-      names: [],
-      sources: [],
-      mappings: [],
-    };
-  }
 
-  function output(fileResults: Array<string>): void {
+  function output(fileResults: Array<FileResult>): void {
     const result = buildResult(fileResults);
 
     if (cliOptions.outFile) {
       fs.mkdirSync(path.dirname(cliOptions.outFile), { recursive: true });
 
-      // we've requested for a sourcemap to be written to disk
+      let outputMap: "both" | "external" | false = false;
       if (babelOptions.sourceMaps && babelOptions.sourceMaps !== "inline") {
+        outputMap = "external";
+      } else if (babelOptions.sourceMaps == undefined && result.hasRawMap) {
+        outputMap = util.hasDataSourcemap(result.code) ? "external" : "both";
+      }
+
+      if (outputMap) {
         const mapLoc = cliOptions.outFile + ".map";
-        result.code = util.addSourceMappingUrl(result.code, mapLoc);
-        fs.writeFileSync(mapLoc, JSON.stringify(encodedMap(result.map)));
+        if (outputMap === "external") {
+          result.code = util.addSourceMappingUrl(result.code, mapLoc);
+        }
+        fs.writeFileSync(
+          mapLoc,
+          JSON.stringify(encodedMap(result.map as TraceMap)),
+        );
       }
 
       fs.writeFileSync(cliOptions.outFile, result.code);
@@ -106,7 +128,6 @@ export default async function ({
 
       process.stdin.on("readable", function () {
         const chunk = process.stdin.read();
-        // $FlowIgnore
         if (chunk !== null) code += chunk;
       });
 
@@ -129,7 +150,7 @@ export default async function ({
   }
 
   async function walk(filenames: Array<string>): Promise<void> {
-    const _filenames = [];
+    const _filenames: string[] = [];
 
     filenames.forEach(function (filename) {
       if (!fs.existsSync(filename)) return;

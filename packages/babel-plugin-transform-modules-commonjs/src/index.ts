@@ -14,7 +14,7 @@ import { template, types as t } from "@babel/core";
 import type { PluginOptions } from "@babel/helper-module-transforms";
 import type { Visitor, Scope } from "@babel/traverse";
 
-import { createDynamicImportTransform } from "babel-plugin-dynamic-import-node/utils";
+import { transformDynamicImport } from "./dynamic-import";
 
 export interface Options extends PluginOptions {
   allowCommonJSExports?: boolean;
@@ -31,8 +31,6 @@ export interface Options extends PluginOptions {
 
 export default declare((api, options: Options) => {
   api.assertVersion(7);
-
-  const transformImportCall = createDynamicImportTransform(api);
 
   const {
     // 'true' for imports to strictly have .default, instead of having
@@ -56,9 +54,8 @@ export default declare((api, options: Options) => {
 
   const constantReexports = api.assumption("constantReexports") ?? loose;
   const enumerableModuleMeta = api.assumption("enumerableModuleMeta") ?? loose;
-  const noIncompleteNsImportDetection = (api.assumption(
-    "noIncompleteNsImportDetection",
-  ) ?? false) as boolean;
+  const noIncompleteNsImportDetection =
+    api.assumption("noIncompleteNsImportDetection") ?? false;
 
   if (
     typeof lazy !== "boolean" &&
@@ -174,14 +171,14 @@ export default declare((api, options: Options) => {
     visitor: {
       CallExpression(path) {
         if (!this.file.has("@babel/plugin-proposal-dynamic-import")) return;
-        if (!path.get("callee").isImport()) return;
+        if (!t.isImport(path.node.callee)) return;
 
         let { scope } = path;
         do {
           scope.rename("require");
         } while ((scope = scope.parent));
 
-        transformImportCall(this, path.get("callee"));
+        transformDynamicImport(path, noInterop, this.file);
       },
 
       Program: {
@@ -200,7 +197,12 @@ export default declare((api, options: Options) => {
           // These objects are specific to CommonJS and are not available in
           // real ES6 implementations.
           if (!allowCommonJSExports) {
-            simplifyAccess(path, new Set(["module", "exports"]), false);
+            if (process.env.BABEL_8_BREAKING) {
+              simplifyAccess(path, new Set(["module", "exports"]));
+            } else {
+              // @ts-ignore(Babel 7 vs Babel 8) The third param has been removed in Babel 8.
+              simplifyAccess(path, new Set(["module", "exports"]), false);
+            }
             path.traverse(moduleExportsVisitor, {
               scope: path.scope,
             });
@@ -243,6 +245,12 @@ export default declare((api, options: Options) => {
 
               header = t.expressionStatement(loadExpr);
             } else {
+              // A lazy import that is never referenced can be safely
+              // omitted, since it wouldn't be executed anyway.
+              if (metadata.lazy && !metadata.referenced) {
+                continue;
+              }
+
               const init =
                 wrapInterop(path, loadExpr, metadata.interop) || loadExpr;
 

@@ -463,14 +463,17 @@ defineType("TSInstantiationExpression", {
   },
 });
 
-defineType("TSAsExpression", {
+const TSTypeExpression = {
   aliases: ["Expression", "LVal", "PatternLike"],
   visitor: ["expression", "typeAnnotation"],
   fields: {
     expression: validateType("Expression"),
     typeAnnotation: validateType("TSType"),
   },
-});
+};
+
+defineType("TSAsExpression", TSTypeExpression);
+defineType("TSSatisfiesExpression", TSTypeExpression);
 
 defineType("TSTypeAssertion", {
   aliases: ["Expression", "LVal", "PatternLike"],
@@ -514,7 +517,7 @@ defineType("TSModuleDeclaration", {
 });
 
 defineType("TSModuleBlock", {
-  aliases: ["Scopable", "Block", "BlockParent"],
+  aliases: ["Scopable", "Block", "BlockParent", "FunctionParent"],
   visitor: ["body"],
   fields: {
     body: validateArrayOfType("Statement"),
@@ -626,6 +629,10 @@ defineType("TSTypeParameter", {
       optional: true,
     },
     out: {
+      validate: assertValueType("boolean"),
+      optional: true,
+    },
+    const: {
       validate: assertValueType("boolean"),
       optional: true,
     },

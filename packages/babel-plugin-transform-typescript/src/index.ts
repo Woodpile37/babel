@@ -1,8 +1,8 @@
 import { declare } from "@babel/helper-plugin-utils";
 import syntaxTypeScript from "@babel/plugin-syntax-typescript";
-import { types as t, template } from "@babel/core";
+import type { PluginPass, types as t } from "@babel/core";
 import { injectInitialization } from "@babel/helper-create-class-features-plugin";
-import type { Binding, NodePath } from "@babel/traverse";
+import type { Binding, NodePath, Scope } from "@babel/traverse";
 import type { Options as SyntaxOptions } from "@babel/plugin-syntax-typescript";
 
 import transpileConstEnum from "./const-enum";
@@ -13,31 +13,39 @@ import transpileNamespace from "./namespace";
 function isInType(path: NodePath) {
   switch (path.parent.type) {
     case "TSTypeReference":
-    case "TSQualifiedName":
     case "TSExpressionWithTypeArguments":
     case "TSTypeQuery":
       return true;
+    case "TSQualifiedName":
+      return (
+        // `import foo = ns.bar` is transformed to `var foo = ns.bar` and should not be removed
+        path.parentPath.findParent(path => path.type !== "TSQualifiedName")
+          .type !== "TSImportEqualsDeclaration"
+      );
     case "ExportSpecifier":
       return (
-        (path.parentPath.parent as t.ExportNamedDeclaration).exportKind ===
-        "type"
+        // export { type foo };
+        path.parent.exportKind === "type" ||
+        // export type { foo };
+        // @ts-expect-error: DeclareExportDeclaration does not have `exportKind`
+        (path.parentPath as NodePath<t.ExportSpecifier>).parent.exportKind ===
+          "type"
       );
     default:
       return false;
   }
 }
 
-const GLOBAL_TYPES = new WeakMap();
+const GLOBAL_TYPES = new WeakMap<Scope, Set<string>>();
 // Track programs which contain imports/exports of values, so that we can include
 // empty exports for programs that do not, but were parsed as modules. This allows
-// tools to infer unamibiguously that results are ESM.
+// tools to infer unambiguously that results are ESM.
 const NEEDS_EXPLICIT_ESM = new WeakMap();
 const PARSED_PARAMS = new WeakSet();
 
-function isGlobalType(path: NodePath, name: string) {
-  const program = path.find(path => path.isProgram()).node;
-  if (path.scope.hasOwnBinding(name)) return false;
-  if (GLOBAL_TYPES.get(program).has(name)) return true;
+function isGlobalType({ scope }: NodePath, name: string) {
+  if (scope.hasBinding(name)) return false;
+  if (GLOBAL_TYPES.get(scope).has(name)) return true;
 
   console.warn(
     `The exported identifier "${name}" is not declared in Babel's scope tracker\n` +
@@ -52,9 +60,40 @@ function isGlobalType(path: NodePath, name: string) {
   return false;
 }
 
-function registerGlobalType(programNode: t.Program, name: string) {
-  GLOBAL_TYPES.get(programNode).add(name);
+function registerGlobalType(programScope: Scope, name: string) {
+  GLOBAL_TYPES.get(programScope).add(name);
 }
+
+// A hack to avoid removing the impl Binding when we remove the declare NodePath
+function safeRemove(path: NodePath) {
+  const ids = path.getBindingIdentifiers();
+  for (const name of Object.keys(ids)) {
+    const binding = path.scope.getBinding(name);
+    if (binding && binding.identifier === ids[name]) {
+      binding.scope.removeBinding(name);
+    }
+  }
+  path.opts.noScope = true;
+  path.remove();
+  path.opts.noScope = false;
+}
+
+function assertCjsTransformEnabled(
+  path: NodePath,
+  pass: PluginPass,
+  wrong: string,
+  suggestion: string,
+  extra: string = "",
+): void {
+  if (pass.file.get("@babel/plugin-transform-modules-*") !== "commonjs") {
+    throw path.buildCodeFrameError(
+      `\`${wrong}\` is only supported when compiling modules to CommonJS.\n` +
+        `Please consider using \`${suggestion}\`${extra}, or add ` +
+        `@babel/plugin-transform-modules-commonjs to your Babel config.`,
+    );
+  }
+}
+
 export interface Options extends SyntaxOptions {
   /** @default true */
   allowNamespaces?: boolean;
@@ -66,6 +105,7 @@ export interface Options extends SyntaxOptions {
   optimizeConstEnums?: boolean;
   allowDeclareFields?: boolean;
 }
+
 type ExtraNodeProps = {
   declare?: unknown;
   accessibility?: unknown;
@@ -73,7 +113,12 @@ type ExtraNodeProps = {
   optional?: unknown;
   override?: unknown;
 };
+
 export default declare((api, opts: Options) => {
+  // `@babel/core` and `@babel/types` are bundled in some downstream libraries.
+  // Ref: https://github.com/babel/babel/issues/15089
+  const { types: t, template } = api;
+
   api.assertVersion(7);
 
   const JSX_PRAGMA_REGEX = /\*?\s*@jsx((?:Frag)?)\s+([^\s]+)/;
@@ -94,7 +139,8 @@ export default declare((api, opts: Options) => {
   const classMemberVisitors = {
     field(
       path: NodePath<
-        (t.ClassPrivateProperty | t.ClassProperty) & ExtraNodeProps
+        (t.ClassPrivateProperty | t.ClassProperty | t.ClassAccessorProperty) &
+          ExtraNodeProps
       >,
     ) {
       const { node } = path;
@@ -125,10 +171,16 @@ export default declare((api, opts: Options) => {
         if (!process.env.BABEL_8_BREAKING) {
           // keep the definitely assigned fields only when `allowDeclareFields` (equivalent of
           // Typescript's `useDefineForClassFields`) is true
-          if (!allowDeclareFields && !node.decorators) {
+          if (
+            !allowDeclareFields &&
+            !node.decorators &&
+            !t.isClassPrivateProperty(node)
+          ) {
             path.remove();
           }
         }
+      } else if (node.abstract) {
+        path.remove();
       } else if (!process.env.BABEL_8_BREAKING) {
         if (
           !allowDeclareFields &&
@@ -213,10 +265,10 @@ export default declare((api, opts: Options) => {
           const { file } = state;
           let fileJsxPragma = null;
           let fileJsxPragmaFrag = null;
-          const programNode = path.node;
+          const programScope = path.scope;
 
-          if (!GLOBAL_TYPES.has(programNode)) {
-            GLOBAL_TYPES.set(programNode, new Set());
+          if (!GLOBAL_TYPES.has(programScope)) {
+            GLOBAL_TYPES.set(programScope, new Set());
           }
 
           if (file.ast.comments) {
@@ -252,7 +304,7 @@ export default declare((api, opts: Options) => {
 
               if (stmt.node.importKind === "type") {
                 for (const specifier of stmt.node.specifiers) {
-                  registerGlobalType(programNode, specifier.local.name);
+                  registerGlobalType(programScope, specifier.local.name);
                 }
                 stmt.remove();
                 continue;
@@ -269,7 +321,7 @@ export default declare((api, opts: Options) => {
                   specifier.type === "ImportSpecifier" &&
                   specifier.importKind === "type"
                 ) {
-                  registerGlobalType(programNode, specifier.local.name);
+                  registerGlobalType(programScope, specifier.local.name);
                   const binding = stmt.scope.getBinding(specifier.local.name);
                   if (binding) {
                     importsToRemove.add(binding.path);
@@ -315,7 +367,7 @@ export default declare((api, opts: Options) => {
                 }
               }
 
-              if (isAllSpecifiersElided()) {
+              if (isAllSpecifiersElided() && !onlyRemoveTypeImports) {
                 stmt.remove();
               } else {
                 for (const importPath of importsToRemove) {
@@ -332,7 +384,7 @@ export default declare((api, opts: Options) => {
 
             if (stmt.isVariableDeclaration({ declare: true })) {
               for (const name of Object.keys(stmt.getBindingIdentifiers())) {
-                registerGlobalType(programNode, name);
+                registerGlobalType(programScope, name);
               }
             } else if (
               stmt.isTSTypeAliasDeclaration() ||
@@ -344,9 +396,8 @@ export default declare((api, opts: Options) => {
                 stmt.get("id").isIdentifier())
             ) {
               registerGlobalType(
-                programNode,
-                //@ts-expect-error
-                stmt.node.id.name,
+                programScope,
+                (stmt.node.id as t.Identifier).name,
               );
             }
           }
@@ -412,6 +463,10 @@ export default declare((api, opts: Options) => {
         NEEDS_EXPLICIT_ESM.set(state.file.ast.program, false);
       },
 
+      ExportAllDeclaration(path) {
+        if (path.node.exportKind === "type") path.remove();
+      },
+
       ExportSpecifier(path) {
         // remove type exports
         type Parent = t.ExportDeclaration & { source?: t.StringLiteral };
@@ -443,16 +498,16 @@ export default declare((api, opts: Options) => {
       },
 
       TSDeclareFunction(path) {
-        path.remove();
+        safeRemove(path);
       },
 
       TSDeclareMethod(path) {
-        path.remove();
+        safeRemove(path);
       },
 
       VariableDeclaration(path) {
         if (path.node.declare) {
-          path.remove();
+          safeRemove(path);
         }
       },
 
@@ -467,8 +522,7 @@ export default declare((api, opts: Options) => {
       ClassDeclaration(path) {
         const { node } = path;
         if (node.declare) {
-          path.remove();
-          return;
+          safeRemove(path);
         }
       },
 
@@ -497,7 +551,8 @@ export default declare((api, opts: Options) => {
             }
           } else if (
             child.isClassProperty() ||
-            child.isClassPrivateProperty()
+            child.isClassPrivateProperty() ||
+            child.isClassAccessorProperty()
           ) {
             classMemberVisitors.field(child);
           }
@@ -535,33 +590,48 @@ export default declare((api, opts: Options) => {
         }
       },
 
-      TSImportEqualsDeclaration(path: NodePath<t.TSImportEqualsDeclaration>) {
-        if (t.isTSExternalModuleReference(path.node.moduleReference)) {
+      TSImportEqualsDeclaration(
+        path: NodePath<t.TSImportEqualsDeclaration>,
+        pass,
+      ) {
+        const { id, moduleReference } = path.node;
+
+        let init: t.Expression;
+        let varKind: "var" | "const";
+        if (t.isTSExternalModuleReference(moduleReference)) {
           // import alias = require('foo');
-          throw path.buildCodeFrameError(
-            `\`import ${path.node.id.name} = require('${path.node.moduleReference.expression.value}')\` ` +
-              "is not supported by @babel/plugin-transform-typescript\n" +
-              "Please consider using " +
-              `\`import ${path.node.id.name} from '${path.node.moduleReference.expression.value}';\` alongside ` +
-              "Typescript's --allowSyntheticDefaultImports option.",
+          assertCjsTransformEnabled(
+            path,
+            pass,
+            `import ${id.name} = require(...);`,
+            `import ${id.name} from '...';`,
+            " alongside Typescript's --allowSyntheticDefaultImports option",
           );
+          init = t.callExpression(t.identifier("require"), [
+            moduleReference.expression,
+          ]);
+          varKind = "const";
+        } else {
+          // import alias = Namespace;
+          init = entityNameToExpr(moduleReference);
+          varKind = "var";
         }
 
-        // import alias = Namespace;
         path.replaceWith(
-          t.variableDeclaration("var", [
-            t.variableDeclarator(
-              path.node.id,
-              entityNameToExpr(path.node.moduleReference),
-            ),
-          ]),
+          t.variableDeclaration(varKind, [t.variableDeclarator(id, init)]),
         );
+        path.scope.registerDeclaration(path);
       },
 
-      TSExportAssignment(path) {
-        throw path.buildCodeFrameError(
-          "`export =` is not supported by @babel/plugin-transform-typescript\n" +
-            "Please consider using `export <value>;`.",
+      TSExportAssignment(path, pass) {
+        assertCjsTransformEnabled(
+          path,
+          pass,
+          `export = <value>;`,
+          `export default <value>;`,
+        );
+        path.replaceWith(
+          template.statement.ast`module.exports = ${path.node.expression}`,
         );
       },
 
@@ -569,11 +639,14 @@ export default declare((api, opts: Options) => {
         path.replaceWith(path.node.expression);
       },
 
-      TSAsExpression(path) {
+      [`TSAsExpression${
+        // Added in Babel 7.20.0
+        t.tsSatisfiesExpression ? "|TSSatisfiesExpression" : ""
+      }`](path: NodePath<t.TSAsExpression | t.TSSatisfiesExpression>) {
         let { node }: { node: t.Expression } = path;
         do {
           node = node.expression;
-        } while (t.isTSAsExpression(node));
+        } while (t.isTSAsExpression(node) || t.isTSSatisfiesExpression?.(node));
         path.replaceWith(node);
       },
 

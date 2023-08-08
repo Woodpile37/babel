@@ -6,10 +6,29 @@ import {
   callExpression,
   functionExpression,
   isAssignmentPattern,
+  isFunctionDeclaration,
   isRestElement,
   returnStatement,
+  isCallExpression,
 } from "@babel/types";
 import type * as t from "@babel/types";
+
+type ExpressionWrapperBuilder<ExtraBody extends t.Node[]> = (
+  replacements?: Parameters<ReturnType<typeof template.expression>>[0],
+) => t.CallExpression & {
+  callee: t.FunctionExpression & {
+    body: {
+      body: [
+        t.VariableDeclaration & {
+          declarations: [
+            { init: t.FunctionExpression | t.ArrowFunctionExpression },
+          ];
+        },
+        ...ExtraBody,
+      ];
+    };
+  };
+};
 
 const buildAnonymousExpressionWrapper = template.expression(`
   (function () {
@@ -18,7 +37,9 @@ const buildAnonymousExpressionWrapper = template.expression(`
       return REF.apply(this, arguments);
     };
   })()
-`);
+`) as ExpressionWrapperBuilder<
+  [t.ReturnStatement & { argument: t.FunctionExpression }]
+>;
 
 const buildNamedExpressionWrapper = template.expression(`
   (function () {
@@ -28,7 +49,9 @@ const buildNamedExpressionWrapper = template.expression(`
     }
     return NAME;
   })()
-`);
+`) as ExpressionWrapperBuilder<
+  [t.FunctionDeclaration, t.ReturnStatement & { argument: t.Identifier }]
+>;
 
 const buildDeclarationWrapper = template.statements(`
   function NAME(PARAMS) { return REF.apply(this, arguments); }
@@ -67,71 +90,85 @@ function classOrObjectMethod(
 }
 
 function plainFunction(
-  path: NodePath<Exclude<t.Function, t.Method>>,
+  inPath: NodePath<Exclude<t.Function, t.Method>>,
   callId: t.Expression,
   noNewArrows: boolean,
   ignoreFunctionLength: boolean,
 ) {
-  const node = path.node;
-  const isDeclaration = path.isFunctionDeclaration();
-  // @ts-expect-error id is not in ArrowFunctionExpression
-  const functionId = node.id;
-  const wrapper = isDeclaration
-    ? buildDeclarationWrapper
-    : functionId
-    ? buildNamedExpressionWrapper
-    : buildAnonymousExpressionWrapper;
+  let path: NodePath<
+    | t.FunctionDeclaration
+    | t.FunctionExpression
+    | t.CallExpression
+    | t.ArrowFunctionExpression
+  > = inPath;
+  let node;
+  let functionId = null;
+  const nodeParams = inPath.node.params;
 
   if (path.isArrowFunctionExpression()) {
-    path.arrowFunctionToExpression({ noNewArrows });
+    if (process.env.BABEL_8_BREAKING) {
+      path = path.arrowFunctionToExpression({ noNewArrows });
+    } else {
+      // arrowFunctionToExpression returns undefined in @babel/traverse < 7.18.10
+      path = path.arrowFunctionToExpression({ noNewArrows }) ?? path;
+    }
+    node = path.node as
+      | t.FunctionDeclaration
+      | t.FunctionExpression
+      | t.CallExpression;
+  } else {
+    node = path.node as t.FunctionDeclaration | t.FunctionExpression;
   }
-  // @ts-expect-error node is FunctionDeclaration|FunctionExpression
-  node.id = null;
 
-  if (isDeclaration) {
+  const isDeclaration = isFunctionDeclaration(node);
+
+  let built = node;
+  if (!isCallExpression(node)) {
+    functionId = node.id;
+    node.id = null;
     node.type = "FunctionExpression";
+    built = callExpression(callId, [
+      node as Exclude<typeof node, t.FunctionDeclaration>,
+    ]);
   }
-
-  const built = callExpression(callId, [
-    node as Exclude<t.Function, t.Method | t.FunctionDeclaration>,
-  ]);
 
   const params: t.Identifier[] = [];
-  for (const param of node.params) {
+  for (const param of nodeParams) {
     if (isAssignmentPattern(param) || isRestElement(param)) {
       break;
     }
     params.push(path.scope.generateUidIdentifier("x"));
   }
 
-  const container = wrapper({
+  const wrapperArgs = {
     NAME: functionId || null,
     REF: path.scope.generateUidIdentifier(functionId ? functionId.name : "ref"),
     FUNCTION: built,
     PARAMS: params,
-  });
+  };
 
   if (isDeclaration) {
-    path.replaceWith((container as t.Statement[])[0]);
-    path.insertAfter((container as t.Statement[])[1]);
+    const container = buildDeclarationWrapper(wrapperArgs);
+    path.replaceWith(container[0]);
+    path.insertAfter(container[1]);
   } else {
-    // @ts-expect-error todo(flow->ts) separate `wrapper` for `isDeclaration` and `else` branches
-    const retFunction = container.callee.body.body[1].argument;
-    if (!functionId) {
+    let container;
+
+    if (functionId) {
+      container = buildNamedExpressionWrapper(wrapperArgs);
+    } else {
+      container = buildAnonymousExpressionWrapper(wrapperArgs);
+
+      const returnFn = container.callee.body.body[1].argument;
       nameFunction({
-        node: retFunction,
-        parent: path.parent,
+        node: returnFn,
+        parent: (path as NodePath<t.FunctionExpression>).parent,
         scope: path.scope,
       });
+      functionId = returnFn.id;
     }
 
-    if (
-      !retFunction ||
-      retFunction.id ||
-      (!ignoreFunctionLength && params.length)
-    ) {
-      // we have an inferred function id or params so we need this wrapper
-      // @ts-expect-error todo(flow->ts) separate `wrapper` for `isDeclaration` and `else` branches
+    if (functionId || (!ignoreFunctionLength && params.length)) {
       path.replaceWith(container);
     } else {
       // we can omit this wrapper as the conditions it protects for do not apply

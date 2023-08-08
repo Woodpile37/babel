@@ -13,15 +13,13 @@ module.exports = function (api) {
 
   const outputType = api.cache.invalidate(() => {
     try {
-      return fs.readFileSync(__dirname + "/.module-type", "utf-8").trim();
-    } catch (_) {
-      return "script";
-    }
+      const type = fs.readFileSync(__dirname + "/.module-type", "utf-8").trim();
+      if (type === "module") return type;
+    } catch (_) {}
+    return "script";
   });
 
   const sources = ["packages/*/src", "codemods/*/src", "eslint/*/src"];
-
-  const includeCoverage = process.env.BABEL_COVERAGE === "true";
 
   const envOpts = {
     shippedProposals: true,
@@ -29,7 +27,7 @@ module.exports = function (api) {
     exclude: [
       "transform-typeof-symbol",
       // We need to enable useBuiltIns
-      "proposal-object-rest-spread",
+      "transform-object-rest-spread",
     ],
   };
 
@@ -63,15 +61,15 @@ module.exports = function (api) {
 
   let targets = {};
   let convertESM = outputType === "script";
-  let addImportExtension = !convertESM;
+  /** @type {false | "externals" | "always"} */
+  let addImportExtension = convertESM ? false : "always";
   let ignoreLib = true;
   let includeRegeneratorRuntime = false;
   let needsPolyfillsForOldNode = false;
-  let dynamicESLintVersionCheck = false;
 
   let transformRuntimeOptions;
 
-  const nodeVersion = bool(process.env.BABEL_8_BREAKING) ? "14.17" : "6.9";
+  const nodeVersion = bool(process.env.BABEL_8_BREAKING) ? "16.20" : "6.9";
   // The vast majority of our src files are modules, but we use
   // unambiguous to keep things simple until we get around to renaming
   // the modules to be more easily distinguished from CommonJS
@@ -106,7 +104,7 @@ module.exports = function (api) {
       break;
     case "rollup":
       convertESM = false;
-      addImportExtension = false;
+      addImportExtension = "externals";
       ignoreLib = false;
       // rollup-commonjs will converts node_modules to ESM
       unambiguousSources.push(
@@ -118,7 +116,6 @@ module.exports = function (api) {
       needsPolyfillsForOldNode = true;
       break;
     case "test-legacy": // In test-legacy environment, we build babel on latest node but test on minimum supported legacy versions
-      dynamicESLintVersionCheck = true;
     // fall through
     case "production":
       // Config during builds before publish.
@@ -128,12 +125,10 @@ module.exports = function (api) {
     case "test":
       targets = { node: "current" };
       needsPolyfillsForOldNode = true;
-      dynamicESLintVersionCheck = true;
       break;
     case "development":
       envOpts.debug = true;
       targets = { node: "current" };
-      dynamicESLintVersionCheck = true;
       break;
   }
 
@@ -172,6 +167,8 @@ module.exports = function (api) {
       .filter(Boolean)
       .map(normalize),
     presets: [
+      // presets are applied from right to left
+      ["@babel/env", envOpts],
       [
         "@babel/preset-typescript",
         {
@@ -180,14 +177,11 @@ module.exports = function (api) {
           optimizeConstEnums: true,
         },
       ],
-      ["@babel/env", envOpts],
-      ["@babel/preset-flow", { allowDeclareFields: true }],
     ],
     plugins: [
-      ["@babel/proposal-object-rest-spread", { useBuiltIns: true }],
+      ["@babel/transform-object-rest-spread", { useBuiltIns: true }],
 
-      convertESM ? "@babel/proposal-export-namespace-from" : null,
-      convertESM ? pluginImportMetaUrl : null,
+      convertESM ? "@babel/transform-export-namespace-from" : null,
 
       pluginPackageJsonMacro,
 
@@ -209,6 +203,7 @@ module.exports = function (api) {
         test: [
           "packages/babel-generator",
           "packages/babel-plugin-proposal-decorators",
+          "packages/babel-helper-string-parser",
         ].map(normalize),
         plugins: ["babel-plugin-transform-charcodes"],
       },
@@ -219,19 +214,34 @@ module.exports = function (api) {
       convertESM && {
         test: ["./packages/babel-node/src"].map(normalize),
         // Used to conditionally import kexec
-        plugins: ["@babel/plugin-proposal-dynamic-import"],
+        plugins: ["@babel/plugin-transform-dynamic-import"],
       },
       {
         test: sources.map(normalize),
         assumptions: sourceAssumptions,
         plugins: [
           transformNamedBabelTypesImportToDestructuring,
-          addImportExtension ? pluginAddImportExtension : null,
+          addImportExtension
+            ? [pluginAddImportExtension, { when: addImportExtension }]
+            : null,
 
           [
             pluginToggleBooleanFlag,
             { name: "USE_ESM", value: outputType === "module" },
             "flag-USE_ESM",
+          ],
+          [
+            pluginToggleBooleanFlag,
+            { name: "IS_STANDALONE", value: env === "standalone" },
+            "flag-IS_STANDALONE",
+          ],
+
+          [
+            pluginToggleBooleanFlag,
+            {
+              name: "process.env.IS_PUBLISH",
+              value: bool(process.env.IS_PUBLISH),
+            },
           ],
 
           process.env.STRIP_BABEL_8_FLAG && [
@@ -273,6 +283,12 @@ module.exports = function (api) {
           ],
         ],
       },
+      convertESM && {
+        exclude: [
+          "./packages/babel-core/src/config/files/import-meta-resolve.ts",
+        ].map(normalize),
+        plugins: [pluginImportMetaUrl],
+      },
       {
         test: sources.map(source => normalize(source.replace("/src", "/test"))),
         plugins: [
@@ -290,26 +306,22 @@ module.exports = function (api) {
         exclude: /regenerator-runtime/,
         plugins: [["@babel/transform-runtime", transformRuntimeOptions]],
       },
-      dynamicESLintVersionCheck && {
-        test: ["./eslint/*/src"].map(normalize),
-        plugins: [pluginDynamicESLintVersionCheck],
-      },
     ].filter(Boolean),
   };
-
-  // we need to do this as long as we do not test everything from source
-  if (includeCoverage) {
-    config.auxiliaryCommentBefore = "istanbul ignore next";
-    config.plugins.push("babel-plugin-istanbul");
-  }
 
   return config;
 };
 
-const monorepoPackages = ["codemods", "eslint", "packages"]
-  .map(folder => fs.readdirSync(__dirname + "/" + folder))
-  .reduce((a, b) => a.concat(b))
-  .map(name => name.replace(/^babel-/, "@babel/"));
+let monorepoPackages;
+function getMonorepoPackages() {
+  if (!monorepoPackages) {
+    monorepoPackages = ["codemods", "eslint", "packages"]
+      .map(folder => fs.readdirSync(__dirname + "/" + folder))
+      .reduce((a, b) => a.concat(b))
+      .map(name => name.replace(/^babel-/, "@babel/"));
+  }
+  return monorepoPackages;
+}
 
 function importInteropSrc(source, filename) {
   if (
@@ -324,7 +336,7 @@ function importInteropSrc(source, filename) {
   }
   if (
     source[0] === "." ||
-    monorepoPackages.some(name => source.startsWith(name))
+    getMonorepoPackages().some(name => source.startsWith(name))
   ) {
     // We don't need to worry about interop for internal files, since we know
     // for sure that they are ESM modules compiled to CJS
@@ -470,17 +482,30 @@ function pluginPolyfillsOldNode({ template, types: t }) {
     },
   };
 }
+
+/**
+ * @param {import("@babel/core")} pluginAPI
+ * @returns {import("@babel/core").PluginObj}
+ */
 function pluginToggleBooleanFlag({ types: t }, { name, value }) {
+  function check(test) {
+    let keepConsequent = value;
+
+    if (test.isUnaryExpression({ operator: "!" })) {
+      test = test.get("argument");
+      keepConsequent = !keepConsequent;
+    }
+    return {
+      test,
+      keepConsequent,
+    };
+  }
+
   return {
     visitor: {
       "IfStatement|ConditionalExpression"(path) {
-        let test = path.get("test");
-        let keepConsequent = value;
-
-        if (test.isUnaryExpression({ operator: "!" })) {
-          test = test.get("argument");
-          keepConsequent = !keepConsequent;
-        }
+        // eslint-disable-next-line prefer-const
+        let { test, keepConsequent } = check(path.get("test"));
 
         // yarn-plugin-conditions injects bool(process.env.BABEL_8_BREAKING)
         // tests, to properly cast the env variable to a boolean.
@@ -499,6 +524,26 @@ function pluginToggleBooleanFlag({ types: t }, { name, value }) {
             ? path.node.consequent
             : path.node.alternate || t.emptyStatement()
         );
+      },
+      LogicalExpression(path) {
+        const { test, keepConsequent } = check(path.get("left"));
+
+        if (!test.matchesPattern(name)) return;
+
+        switch (path.node.operator) {
+          case "&&":
+            path.replaceWith(
+              keepConsequent ? path.node.right : t.booleanLiteral(false)
+            );
+            break;
+          case "||":
+            path.replaceWith(
+              keepConsequent ? t.booleanLiteral(true) : path.node.right
+            );
+            break;
+          default:
+            throw path.buildCodeFrameError("This check could not be stripped.");
+        }
       },
       MemberExpression(path) {
         if (path.matchesPattern(name)) {
@@ -608,6 +653,10 @@ function transformNamedBabelTypesImportToDestructuring({
   };
 }
 
+/**
+ * @param {import("@babel/core")} pluginAPI
+ * @returns {import("@babel/core").PluginObj}
+ */
 function pluginImportMetaUrl({ types: t, template }) {
   const isImportMeta = node =>
     t.isMetaProperty(node) &&
@@ -622,7 +671,7 @@ function pluginImportMetaUrl({ types: t, template }) {
   return {
     visitor: {
       Program(programPath) {
-        // We must be sure to run this before the instanbul plugins, because its
+        // We must be sure to run this before the istanbul plugins, because its
         // instrumentation breaks our detection.
         programPath.traverse({
           // fileURLToPath(import.meta.url)
@@ -630,23 +679,50 @@ function pluginImportMetaUrl({ types: t, template }) {
             const { node } = path;
 
             if (
-              !t.isIdentifier(node.callee, { name: "fileURLToPath" }) ||
+              (function () {
+                if (
+                  !t.isIdentifier(node.callee, {
+                    name: "fileURLToPath",
+                  }) ||
+                  node.arguments.length !== 1
+                ) {
+                  return;
+                }
+
+                const arg = node.arguments[0];
+
+                if (
+                  !t.isMemberExpression(arg, {
+                    computed: false,
+                  }) ||
+                  !t.isIdentifier(arg.property, {
+                    name: "url",
+                  }) ||
+                  !isImportMeta(arg.object)
+                ) {
+                  return;
+                }
+                path.replaceWith(t.identifier("__filename"));
+                return true;
+              })()
+            ) {
+              return;
+            }
+
+            if (
+              !t.isIdentifier(node.callee, { name: "commonJS" }) ||
               node.arguments.length !== 1
             ) {
               return;
             }
 
-            const arg = node.arguments[0];
+            const binding = path.scope.getBinding("commonJS");
+            if (!binding) return;
 
-            if (
-              !t.isMemberExpression(arg, { computed: false }) ||
-              !t.isIdentifier(arg.property, { name: "url" }) ||
-              !isImportMeta(arg.object)
-            ) {
-              return;
+            if (binding.path.isImportSpecifier()) {
+              path.parentPath.parentPath.assertVariableDeclaration();
+              path.parentPath.parentPath.remove();
             }
-
-            path.replaceWith(t.identifier("__filename"));
           },
 
           // const require = createRequire(import.meta.url)
@@ -688,14 +764,18 @@ function pluginImportMetaUrl({ types: t, template }) {
   };
 }
 
-function pluginAddImportExtension() {
+function pluginAddImportExtension(api, { when }) {
   return {
     visitor: {
       "ImportDeclaration|ExportDeclaration"({ node }) {
         const { source } = node;
         if (!source) return;
 
-        if (source.value.startsWith(".") && !/\.[a-z]+$/.test(source.value)) {
+        if (
+          when === "always" &&
+          source.value.startsWith(".") &&
+          !/\.[a-z]+$/.test(source.value)
+        ) {
           const dir = pathUtils.dirname(this.filename);
 
           try {
@@ -741,7 +821,46 @@ function pluginAddImportExtension() {
 }
 
 const tokenTypesMapping = new Map();
-const tokenTypeSourcePath = "./packages/babel-parser/src/tokenizer/types.js";
+const tokenTypeSourcePath = "./packages/babel-parser/src/tokenizer/types.ts";
+
+function getTokenTypesMapping() {
+  if (tokenTypesMapping.size === 0) {
+    const tokenTypesAst = parseSync(
+      fs.readFileSync(tokenTypeSourcePath, {
+        encoding: "utf-8",
+      }),
+      {
+        configFile: false,
+        parserOpts: { attachComments: false, plugins: ["typescript"] },
+      }
+    );
+
+    let typesDeclaration;
+    for (const n of tokenTypesAst.program.body) {
+      if (n.type === "ExportNamedDeclaration" && n.exportKind === "value") {
+        const declarations = n.declaration.declarations;
+        if (declarations !== undefined) typesDeclaration = declarations[0];
+        if (
+          typesDeclaration !== undefined &&
+          typesDeclaration.id.name === "types"
+        ) {
+          break;
+        }
+      }
+    }
+    if (typesDeclaration === undefined) {
+      throw new Error(
+        "The plugin can not find TokenType definition in " + tokenTypeSourcePath
+      );
+    }
+
+    const tokenTypesDefinition = typesDeclaration.init.expression.properties;
+    for (let i = 0; i < tokenTypesDefinition.length; i++) {
+      tokenTypesMapping.set(tokenTypesDefinition[i].key.name, i);
+    }
+  }
+  return tokenTypesMapping;
+}
 
 function pluginBabelParserTokenType({
   types: { isIdentifier, numericLiteral },
@@ -756,7 +875,7 @@ function pluginBabelParserTokenType({
           !node.computed
         ) {
           const tokenName = node.property.name;
-          const tokenType = tokenTypesMapping.get(node.property.name);
+          const tokenType = getTokenTypesMapping().get(node.property.name);
           if (tokenType === undefined) {
             throw path.buildCodeFrameError(
               `${tokenName} is not defined in ${tokenTypeSourcePath}`
@@ -764,69 +883,6 @@ function pluginBabelParserTokenType({
           }
           path.replaceWith(numericLiteral(tokenType));
         }
-      },
-    },
-  };
-}
-
-(function generateTokenTypesMapping() {
-  const tokenTypesAst = parseSync(
-    fs.readFileSync(tokenTypeSourcePath, {
-      encoding: "utf-8",
-    }),
-    {
-      configFile: false,
-      parserOpts: { attachComments: false, plugins: ["flow"] },
-    }
-  );
-
-  let typesDeclaration;
-  for (const n of tokenTypesAst.program.body) {
-    if (n.type === "ExportNamedDeclaration" && n.exportKind === "value") {
-      const declarations = n.declaration.declarations;
-      if (declarations !== undefined) typesDeclaration = declarations[0];
-      if (
-        typesDeclaration !== undefined &&
-        typesDeclaration.id.name === "types"
-      ) {
-        break;
-      }
-    }
-  }
-  if (typesDeclaration === undefined) {
-    throw new Error(
-      "The plugin can not find TokenType definition in " + tokenTypeSourcePath
-    );
-  }
-
-  const tokenTypesDefinition = typesDeclaration.init.properties;
-  for (let i = 0; i < tokenTypesDefinition.length; i++) {
-    tokenTypesMapping.set(tokenTypesDefinition[i].key.name, i);
-  }
-})();
-
-// Transforms
-//    ESLINT_VERSION
-// to
-//    process.env.ESLINT_VERSION_FOR_BABEL
-//      ? parseInt(process.env.ESLINT_VERSION_FOR_BABEL, 10)
-//      : ESLINT_VERSION
-function pluginDynamicESLintVersionCheck({ template }) {
-  const transformed = new WeakSet();
-
-  return {
-    visitor: {
-      ReferencedIdentifier(path) {
-        if (path.node.name !== "ESLINT_VERSION") return;
-
-        if (transformed.has(path.node)) return;
-        transformed.add(path.node);
-
-        path.replaceWith(template.expression.ast`
-          process.env.ESLINT_VERSION_FOR_BABEL
-            ? parseInt(process.env.ESLINT_VERSION_FOR_BABEL, 10)
-            : ${path.node}
-        `);
       },
     },
   };

@@ -6,12 +6,14 @@ declare module "regexpu-core" {
     unicodePropertyEscapes?: "transform" | false;
     namedGroups?: "transform" | false;
     onNamedGroup?: (name: string, index: number) => void;
+    modifiers?: "transform" | false;
+    onNewFlags?: (name: string) => void;
   };
   function rewritePattern(
     pattern: string,
     flags: string,
     options: RegexpuOptions
   ): string;
-  export = rewritePattern;
+  export default rewritePattern;
   export { RegexpuOptions };
 }

@@ -1,29 +1,42 @@
 import * as babelPlugins from "./generated/plugins";
 
-export default (_: any, { loose = false } = {}) => {
-  // todo(flow->ts) improve types
-  const plugins: any[] = [
-    babelPlugins.syntaxImportAssertions,
-    babelPlugins.proposalUnicodeSetsRegex,
-  ];
+export default (_: any, opts: any = {}) => {
+  const {
+    loose = false,
+    decoratorsLegacy = false,
+    decoratorsVersion = "2018-09",
+    decoratorsBeforeExport,
+  } = opts;
 
-  if (!process.env.BABEL_8_BREAKING) {
+  const plugins = [
+    babelPlugins.syntaxImportAssertions,
+    babelPlugins.transformUnicodeSetsRegex,
+    babelPlugins.proposalDuplicateNamedCapturingGroupsRegex,
+    [
+      babelPlugins.proposalDecorators,
+      {
+        version: decoratorsLegacy ? "legacy" : decoratorsVersion,
+        decoratorsBeforeExport,
+      },
+    ],
+    babelPlugins.proposalRegexpModifiers,
+    babelPlugins.proposalExplicitResourceManagement,
     // These are Stage 4
-    plugins.push(
-      babelPlugins.syntaxImportMeta,
-      babelPlugins.syntaxTopLevelAwait,
-      babelPlugins.proposalExportNamespaceFrom,
-      babelPlugins.proposalLogicalAssignmentOperators,
-      [babelPlugins.proposalOptionalChaining, { loose }],
-      [babelPlugins.proposalNullishCoalescingOperator, { loose }],
-      [babelPlugins.proposalClassProperties, { loose }],
-      babelPlugins.proposalJsonStrings,
-      babelPlugins.proposalNumericSeparator,
-      [babelPlugins.proposalPrivateMethods, { loose }],
-      babelPlugins.proposalPrivatePropertyInObject,
-      babelPlugins.proposalClassStaticBlock,
-    );
-  }
+    ...(process.env.BABEL_8_BREAKING
+      ? []
+      : [
+          babelPlugins.transformExportNamespaceFrom,
+          babelPlugins.transformLogicalAssignmentOperators,
+          [babelPlugins.transformOptionalChaining, { loose }],
+          [babelPlugins.transformNullishCoalescingOperator, { loose }],
+          [babelPlugins.transformClassProperties, { loose }],
+          babelPlugins.transformJsonStrings,
+          babelPlugins.transformNumericSeparator,
+          [babelPlugins.transformPrivateMethods, { loose }],
+          babelPlugins.transformPrivatePropertyInObject,
+          babelPlugins.transformClassStaticBlock,
+        ]),
+  ];
 
   return { plugins };
 };

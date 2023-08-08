@@ -1,6 +1,7 @@
 import browserslist from "browserslist";
 import { findSuggestion } from "@babel/helper-validator-option";
 import browserModulesData from "@babel/compat-data/native-modules";
+import LruCache from "lru-cache";
 
 import {
   semverify,
@@ -21,7 +22,7 @@ import type {
   TargetsTuple,
 } from "./types";
 
-export type { Targets, InputTargets };
+export type { Target, Targets, InputTargets };
 
 export { prettifyTargets } from "./pretty";
 export { getInclusionReasons } from "./debug";
@@ -31,7 +32,6 @@ export { TargetNames };
 
 const ESM_SUPPORT = browserModulesData["es6.module"];
 
-declare const PACKAGE_JSON: { name: string; version: string };
 const v = new OptionValidator(PACKAGE_JSON.name);
 
 function validateTargetNames(targets: Targets): TargetsTuple {
@@ -45,7 +45,7 @@ function validateTargetNames(targets: Targets): TargetsTuple {
     }
   }
 
-  return targets as any;
+  return targets;
 }
 
 export function isBrowsersQueryValid(browsers: unknown): boolean {
@@ -65,50 +65,53 @@ function validateBrowsers(browsers: Browsers | undefined) {
 }
 
 function getLowestVersions(browsers: Array<string>): Targets {
-  return browsers.reduce((all, browser) => {
-    const [browserName, browserVersion] = browser.split(" ") as [
-      BrowserslistBrowserName,
-      string,
-    ];
-    const target: Target = browserNameMap[browserName];
+  return browsers.reduce(
+    (all, browser) => {
+      const [browserName, browserVersion] = browser.split(" ") as [
+        BrowserslistBrowserName,
+        string,
+      ];
+      const target = browserNameMap[browserName];
 
-    if (!target) {
-      return all;
-    }
-
-    try {
-      // Browser version can return as "10.0-10.2"
-      const splitVersion = browserVersion.split("-")[0].toLowerCase();
-      const isSplitUnreleased = isUnreleasedVersion(splitVersion, target);
-
-      if (!all[target]) {
-        all[target] = isSplitUnreleased
-          ? splitVersion
-          : semverify(splitVersion);
+      if (!target) {
         return all;
       }
 
-      const version = all[target];
-      const isUnreleased = isUnreleasedVersion(version, target);
+      try {
+        // Browser version can return as "10.0-10.2"
+        const splitVersion = browserVersion.split("-")[0].toLowerCase();
+        const isSplitUnreleased = isUnreleasedVersion(splitVersion, target);
 
-      if (isUnreleased && isSplitUnreleased) {
-        all[target] = getLowestUnreleased(version, splitVersion, target);
-      } else if (isUnreleased) {
-        all[target] = semverify(splitVersion);
-      } else if (!isUnreleased && !isSplitUnreleased) {
-        const parsedBrowserVersion = semverify(splitVersion);
+        if (!all[target]) {
+          all[target] = isSplitUnreleased
+            ? splitVersion
+            : semverify(splitVersion);
+          return all;
+        }
 
-        all[target] = semverMin(version, parsedBrowserVersion);
-      }
-    } catch (e) {}
+        const version = all[target];
+        const isUnreleased = isUnreleasedVersion(version, target);
 
-    return all;
-  }, {} as Record<Target, string>);
+        if (isUnreleased && isSplitUnreleased) {
+          all[target] = getLowestUnreleased(version, splitVersion, target);
+        } else if (isUnreleased) {
+          all[target] = semverify(splitVersion);
+        } else if (!isUnreleased && !isSplitUnreleased) {
+          const parsedBrowserVersion = semverify(splitVersion);
+
+          all[target] = semverMin(version, parsedBrowserVersion);
+        }
+      } catch (e) {}
+
+      return all;
+    },
+    {} as Record<Target, string>,
+  );
 }
 
 function outputDecimalWarning(
   decimalTargets: Array<{ target: string; value: number }>,
-): void {
+) {
   if (!decimalTargets.length) {
     return;
   }
@@ -123,7 +126,7 @@ getting parsed as 6.1, which can lead to unexpected behavior.
 `);
 }
 
-function semverifyTarget(target: keyof Targets, value: string) {
+function semverifyTarget(target: Target, value: string) {
   try {
     return semverify(value);
   } catch (error) {
@@ -141,7 +144,7 @@ function nodeTargetParser(value: true | string) {
     value === true || value === "current"
       ? process.versions.node
       : semverifyTarget("node", value);
-  return ["node" as const, parsed] as const;
+  return ["node", parsed] as const;
 }
 
 function defaultTargetParser(
@@ -158,7 +161,7 @@ function generateTargets(inputTargets: InputTargets): Targets {
   const input = { ...inputTargets };
   delete input.esmodules;
   delete input.browsers;
-  return input as any as Targets;
+  return input;
 }
 
 function resolveTargets(queries: Browsers, env?: string): Targets {
@@ -167,6 +170,18 @@ function resolveTargets(queries: Browsers, env?: string): Targets {
     env,
   });
   return getLowestVersions(resolved);
+}
+
+const targetsCache = new LruCache({ max: 64 });
+
+function resolveTargetsCached(queries: Browsers, env?: string): Targets {
+  const cacheKey = typeof queries === "string" ? queries : queries.join() + env;
+  let cached = targetsCache.get(cacheKey) as Targets | undefined;
+  if (!cached) {
+    cached = resolveTargets(queries, env);
+    targetsCache.set(cacheKey, cached);
+  }
+  return { ...cached };
 }
 
 type GetTargetsOption = {
@@ -181,7 +196,7 @@ type GetTargetsOption = {
 };
 
 export default function getTargets(
-  inputTargets: InputTargets = {} as InputTargets,
+  inputTargets: InputTargets = {},
   options: GetTargetsOption = {},
 ): Targets {
   let { browsers, esmodules } = inputTargets;
@@ -190,7 +205,7 @@ export default function getTargets(
   validateBrowsers(browsers);
 
   const input = generateTargets(inputTargets);
-  let targets: TargetsTuple = validateTargetNames(input);
+  let targets = validateTargetNames(input);
 
   const shouldParseBrowsers = !!browsers;
   const hasTargets = shouldParseBrowsers || Object.keys(targets).length > 0;
@@ -205,9 +220,8 @@ export default function getTargets(
     });
     if (browsers == null) {
       if (process.env.BABEL_8_BREAKING) {
-        // In Babel 8, if no targets are passed, we use browserslist's defaults
-        // and exclude IE 11.
-        browsers = ["defaults, not ie 11"];
+        // In Babel 8, if no targets are passed, we use browserslist's defaults.
+        browsers = ["defaults"];
       } else {
         // If no targets are passed, we need to overwrite browserslist's defaults
         // so that we enable all transforms (acting like the now deprecated
@@ -233,7 +247,10 @@ export default function getTargets(
   // or an empty array (without any user config, use default config),
   // we don't need to call `resolveTargets` to execute the related methods of `browserslist` library.
   if (browsers?.length) {
-    const queryBrowsers = resolveTargets(browsers, options.browserslistEnv);
+    const queryBrowsers = resolveTargetsCached(
+      browsers,
+      options.browserslistEnv,
+    );
 
     if (esmodules === "intersect") {
       for (const browser of Object.keys(queryBrowsers) as Target[]) {
@@ -258,7 +275,7 @@ export default function getTargets(
   }
 
   // Parse remaining targets
-  const result: Targets = {} as Targets;
+  const result: Targets = {};
   const decimalWarnings = [];
   for (const target of Object.keys(targets).sort() as Target[]) {
     const value = targets[target];

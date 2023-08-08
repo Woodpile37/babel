@@ -1,9 +1,11 @@
-import type { NodePath, Scope } from "@babel/traverse";
-import traverse from "@babel/traverse";
+import type { File } from "@babel/core";
+import environmentVisitor from "@babel/helper-environment-visitor";
 import memberExpressionToFunctions from "@babel/helper-member-expression-to-functions";
 import type { HandlerState } from "@babel/helper-member-expression-to-functions";
 import optimiseCall from "@babel/helper-optimise-call-expression";
-import environmentVisitor from "@babel/helper-environment-visitor";
+import template from "@babel/template";
+import traverse from "@babel/traverse";
+import type { NodePath, Scope } from "@babel/traverse";
 import {
   assignmentExpression,
   booleanLiteral,
@@ -16,13 +18,19 @@ import {
   thisExpression,
 } from "@babel/types";
 import type * as t from "@babel/types";
-import type { File } from "@babel/core";
 
-// TODO (Babel 8): Don't export this.
-export {
-  default as environmentVisitor,
-  skipAllButComputedKey,
-} from "@babel/helper-environment-visitor";
+if (!process.env.BABEL_8_BREAKING) {
+  if (!USE_ESM) {
+    if (!IS_STANDALONE) {
+      // eslint-disable-next-line no-restricted-globals
+      const ns = require("@babel/helper-environment-visitor");
+      // eslint-disable-next-line no-restricted-globals
+      exports.environmentVisitor = ns.default;
+      // eslint-disable-next-line no-restricted-globals
+      exports.skipAllButComputedKey = ns.skipAllButComputedKey;
+    }
+  }
+}
 
 type ThisRef =
   | {
@@ -98,16 +106,22 @@ type SharedState = {
 
 type Handler = HandlerState<SharedState> & SharedState;
 type SuperMember = NodePath<
-  | t.MemberExpression & {
-      object: t.Super;
-      property: Exclude<t.MemberExpression["property"], t.PrivateName>;
-    }
+  t.MemberExpression & {
+    object: t.Super;
+    property: Exclude<t.MemberExpression["property"], t.PrivateName>;
+  }
 >;
 
 interface SpecHandler
   extends Pick<
     Handler,
-    "get" | "set" | "destructureSet" | "call" | "optionalCall" | "memoise"
+    | "memoise"
+    | "get"
+    | "set"
+    | "destructureSet"
+    | "call"
+    | "optionalCall"
+    | "delete"
   > {
   _get(
     this: Handler & SpecHandler,
@@ -239,6 +253,23 @@ const specHandlers: SpecHandler = {
       args,
       true,
     );
+  },
+
+  delete(this: Handler & SpecHandler, superMember: SuperMember) {
+    if (superMember.node.computed) {
+      return sequenceExpression([
+        callExpression(this.file.addHelper("toPropertyKey"), [
+          cloneNode(superMember.node.property),
+        ]),
+        template.expression.ast`
+          function () { throw new ReferenceError("'delete super[expr]' is invalid"); }()
+        `,
+      ]);
+    } else {
+      return template.expression.ast`
+        function () { throw new ReferenceError("'delete super.prop' is invalid"); }()
+      `;
+    }
   },
 };
 
@@ -383,20 +414,13 @@ export default class ReplaceSupers {
   declare opts: ReplaceSupersOptions;
 
   getObjectRef() {
-    return cloneNode(
-      this.opts.objectRef ||
-        // @ts-expect-error https://github.com/microsoft/TypeScript/issues/49643
-        this.opts.getObjectRef(),
-    );
+    return cloneNode(this.opts.objectRef || this.opts.getObjectRef());
   }
 
   getSuperRef() {
     if (this.opts.superRef) return cloneNode(this.opts.superRef);
     if (this.opts.getSuperRef) {
-      return cloneNode(
-        // @ts-expect-error https://github.com/microsoft/TypeScript/issues/49643
-        this.opts.getSuperRef(),
-      );
+      return cloneNode(this.opts.getSuperRef());
     }
   }
 

@@ -157,7 +157,7 @@ const handle = {
 
       // Replace `function (a, x = a.b?.#c) {}` to `function (a, x = (() => a.b?.#c)() ){}`
       // so the temporary variable can be injected in correct scope
-      // This can be further optimized to avoid unecessary IIFE
+      // This can be further optimized to avoid unnecessary IIFE
       if (scope.path.isPattern()) {
         endPath.replaceWith(
           // The injected member will be queued and eventually transformed when visited
@@ -247,6 +247,11 @@ const handle = {
       } else if (parentIsCall) {
         // `(a?.#b)()` to `(a == null ? void 0 : a.#b.bind(a))()`
         member.replaceWith(this.boundGet(member));
+      } else if (
+        (process.env.BABEL_8_BREAKING || this.delete) &&
+        parentPath.isUnaryExpression({ operator: "delete" })
+      ) {
+        parentPath.replaceWith(this.delete(member));
       } else {
         member.replaceWith(this.get(member));
       }
@@ -283,6 +288,7 @@ const handle = {
             "=",
             context,
             // object must not be Super when `context` is an identifier
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
             object as t.Expression,
           );
         }
@@ -477,7 +483,7 @@ const handle = {
     if (parentPath.isOptionalCallExpression({ callee: node })) {
       // Replace `function (a, x = a.b.#c?.()) {}` to `function (a, x = (() => a.b.#c?.())() ){}`
       // so the temporary variable can be injected in correct scope
-      // This can be further optimized to avoid unecessary IIFE
+      // This can be further optimized to avoid unnecessary IIFE
       if (scope.path.isPattern()) {
         parentPath.replaceWith(
           // The injected member will be queued and eventually transformed when visited
@@ -488,6 +494,15 @@ const handle = {
       parentPath.replaceWith(
         this.optionalCall(member, parentPath.node.arguments),
       );
+      return;
+    }
+
+    // delete MEMBER -> _delete(MEMBER)
+    if (
+      (process.env.BABEL_8_BREAKING || this.delete) &&
+      parentPath.isUnaryExpression({ operator: "delete" })
+    ) {
+      parentPath.replaceWith(this.delete(member));
       return;
     }
 
@@ -562,6 +577,7 @@ export interface Handler<State> {
     member: Member,
     args: t.OptionalCallExpression["arguments"],
   ): t.Expression;
+  delete(this: HandlerState<State> & State, member: Member): t.Expression;
 }
 
 export interface HandlerState<State = {}> extends Handler<State> {

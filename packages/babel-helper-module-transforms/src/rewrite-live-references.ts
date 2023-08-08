@@ -110,16 +110,22 @@ export default function rewriteLiveReferences(
     exported, // local name => exported name list
   };
   programPath.traverse(
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define
     rewriteBindingInitVisitor,
     rewriteBindingInitVisitorState,
   );
 
-  simplifyAccess(
-    programPath,
-    // NOTE(logan): The 'Array.from' calls are to make this code with in loose mode.
-    new Set([...Array.from(imported.keys()), ...Array.from(exported.keys())]),
-    false,
-  );
+  // NOTE(logan): The 'Array.from' calls are to make this code with in loose mode.
+  const bindingNames = new Set([
+    ...Array.from(imported.keys()),
+    ...Array.from(exported.keys()),
+  ]);
+  if (process.env.BABEL_8_BREAKING) {
+    simplifyAccess(programPath, bindingNames);
+  } else {
+    // @ts-ignore(Babel 7 vs Babel 8) The third param has been removed in Babel 8.
+    simplifyAccess(programPath, bindingNames, false);
+  }
 
   // Rewrite reads/writes from imports and exports to have the correct behavior.
   const rewriteReferencesVisitorState: RewriteReferencesVisitorState = {
@@ -131,6 +137,7 @@ export default function rewriteLiveReferences(
     exported, // local name => exported name list
     buildImportReference: ([source, importName, localName], identNode) => {
       const meta = metadata.source.get(source);
+      meta.referenced = true;
 
       if (localName) {
         if (meta.lazy) {
@@ -159,6 +166,7 @@ export default function rewriteLiveReferences(
       );
     },
   };
+  // eslint-disable-next-line @typescript-eslint/no-use-before-define
   programPath.traverse(rewriteReferencesVisitor, rewriteReferencesVisitorState);
 }
 
@@ -179,6 +187,7 @@ const rewriteBindingInitVisitor: Visitor<RewriteBindingInitVisitorState> = {
     const exportNames = exported.get(localName) || [];
     if (exportNames.length > 0) {
       const statement = expressionStatement(
+        // eslint-disable-next-line @typescript-eslint/no-use-before-define
         buildBindingExportAssignmentExpression(
           metadata,
           exportNames,
@@ -200,6 +209,7 @@ const rewriteBindingInitVisitor: Visitor<RewriteBindingInitVisitorState> = {
 
       if (exportNames.length > 0) {
         const statement = expressionStatement(
+          // eslint-disable-next-line @typescript-eslint/no-use-before-define
           buildBindingExportAssignmentExpression(
             metadata,
             exportNames,

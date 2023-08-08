@@ -29,7 +29,8 @@ import type { PluginAPI, PresetAPI } from "./helpers/config-api";
 import loadPrivatePartialConfig from "./partial";
 import type { ValidatedOptions } from "./validation/options";
 
-import * as Context from "./cache-contexts";
+import type * as Context from "./cache-contexts";
+import ConfigError from "../errors/config-error";
 
 type LoadedDescriptor = {
   value: {};
@@ -219,7 +220,9 @@ function enhanceError<T extends Function>(context: ConfigContext, fn: T): T {
       // There are a few case where thrown errors will try to annotate themselves multiple times, so
       // to keep things simple we just bail out if re-wrapping the message.
       if (!/^\[BABEL\]/.test(e.message)) {
-        e.message = `[BABEL] ${context.filename || "unknown"}: ${e.message}`;
+        e.message = `[BABEL] ${context.filename ?? "unknown file"}: ${
+          e.message
+        }`;
       }
 
       throw e;
@@ -325,29 +328,6 @@ const presetDescriptorLoader = makeDescriptorLoader<
   PresetAPI
 >(makePresetAPI);
 
-/**
- * Instantiate a plugin for the given descriptor, returning the plugin/options pair.
- */
-function* loadPluginDescriptor(
-  descriptor: UnloadedDescriptor,
-  context: Context.SimplePlugin,
-): Handler<Plugin> {
-  if (descriptor.value instanceof Plugin) {
-    if (descriptor.options) {
-      throw new Error(
-        "Passed options to an existing Plugin instance will not work.",
-      );
-    }
-
-    return descriptor.value;
-  }
-
-  return yield* instantiatePlugin(
-    yield* pluginDescriptorLoader(descriptor, context),
-    context,
-  );
-}
-
 const instantiatePlugin = makeWeakCache(function* (
   { value, options, dirname, alias, externalDependencies }: LoadedDescriptor,
   cache: CacheConfigurator<Context.SimplePlugin>,
@@ -403,15 +383,44 @@ const instantiatePlugin = makeWeakCache(function* (
   return new Plugin(plugin, options, alias, externalDependencies);
 });
 
+/**
+ * Instantiate a plugin for the given descriptor, returning the plugin/options pair.
+ */
+function* loadPluginDescriptor(
+  descriptor: UnloadedDescriptor,
+  context: Context.SimplePlugin,
+): Handler<Plugin> {
+  if (descriptor.value instanceof Plugin) {
+    if (descriptor.options) {
+      throw new Error(
+        "Passed options to an existing Plugin instance will not work.",
+      );
+    }
+
+    return descriptor.value;
+  }
+
+  return yield* instantiatePlugin(
+    yield* pluginDescriptorLoader(descriptor, context),
+    context,
+  );
+}
+
+const needsFilename = (val: unknown) => val && typeof val !== "function";
+
 const validateIfOptionNeedsFilename = (
   options: ValidatedOptions,
   descriptor: UnloadedDescriptor,
 ): void => {
-  if (options.test || options.include || options.exclude) {
+  if (
+    needsFilename(options.test) ||
+    needsFilename(options.include) ||
+    needsFilename(options.exclude)
+  ) {
     const formattedPresetName = descriptor.name
       ? `"${descriptor.name}"`
       : "/* your preset */";
-    throw new Error(
+    throw new ConfigError(
       [
         `Preset ${formattedPresetName} requires a filename to be set when babel is called directly,`,
         `\`\`\``,
@@ -431,13 +440,27 @@ const validatePreset = (
   if (!context.filename) {
     const { options } = preset;
     validateIfOptionNeedsFilename(options, descriptor);
-    if (options.overrides) {
-      options.overrides.forEach(overrideOptions =>
-        validateIfOptionNeedsFilename(overrideOptions, descriptor),
-      );
-    }
+    options.overrides?.forEach(overrideOptions =>
+      validateIfOptionNeedsFilename(overrideOptions, descriptor),
+    );
   }
 };
+
+const instantiatePreset = makeWeakCacheSync(
+  ({
+    value,
+    dirname,
+    alias,
+    externalDependencies,
+  }: LoadedDescriptor): PresetInstance => {
+    return {
+      options: validate("preset", value),
+      alias,
+      dirname,
+      externalDependencies,
+    };
+  },
+);
 
 /**
  * Generate a config object that will act as the root of a new nested config.
@@ -458,22 +481,6 @@ function* loadPresetDescriptor(
     externalDependencies: preset.externalDependencies,
   };
 }
-
-const instantiatePreset = makeWeakCacheSync(
-  ({
-    value,
-    dirname,
-    alias,
-    externalDependencies,
-  }: LoadedDescriptor): PresetInstance => {
-    return {
-      options: validate("preset", value),
-      alias,
-      dirname,
-      externalDependencies,
-    };
-  },
-);
 
 function chain<Args extends any[]>(
   a: undefined | ((...args: Args) => void),

@@ -17,6 +17,14 @@
       },
       "type": "object"
     },
+    "ImportAttributesPluginOptions": {
+      "properties": {
+        "deprecatedAssertSyntax": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
     "PipelineOperatorPluginOptions": {
       "properties": {
         "proposal": {
@@ -49,6 +57,10 @@
       "description": "By default, a return statement at the top level raises an error.\nSet this to true to accept such code.",
       "type": "boolean"
     },
+    "allowNewTargetOutsideFunction": {
+      "description": "By default, new.target use is not allowed outside of a function or class.\nSet this to true to accept such code.",
+      "type": "boolean"
+    },
     "allowSuperOutsideMethod": {
       "type": "boolean"
     },
@@ -76,6 +88,19 @@
               },
               {
                 "$ref": "#/definitions/DecoratorsPluginOptions"
+              }
+            ],
+            "additionalItems": false,
+            "type": "array"
+          },
+          {
+            "items": [
+              {
+                "enum": ["importAttributes"],
+                "type": "string"
+              },
+              {
+                "$ref": "#/definitions/ImportAttributesPluginOptions"
               }
             ],
             "additionalItems": false,
@@ -122,6 +147,7 @@
           },
           {
             "enum": [
+              "asyncDoExpressions",
               "asyncGenerators",
               "bigInt",
               "classPrivateMethods",
@@ -131,9 +157,12 @@
               "decimal",
               "decorators",
               "decorators-legacy",
+              "decoratorAutoAccessors",
+              "destructuringPrivate",
               "doExpressions",
               "dynamicImport",
               "estree",
+              "explicitResourceManagement",
               "exportDefaultFrom",
               "exportNamespaceFrom",
               "flow",
@@ -141,9 +170,12 @@
               "functionBind",
               "functionSent",
               "importAssertions",
+              "importAttributes",
               "importMeta",
+              "importReflection",
               "jsx",
               "logicalAssignment",
+              "moduleBlocks",
               "moduleStringNames",
               "nullishCoalescingOperator",
               "numericSeparator",
@@ -154,6 +186,7 @@
               "pipelineOperator",
               "placeholders",
               "privateIn",
+              "regexpUnicodeSets",
               "throwExpressions",
               "topLevelAwait",
               "typescript",

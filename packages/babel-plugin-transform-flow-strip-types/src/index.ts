@@ -136,9 +136,9 @@ export default declare((api, opts: Options) => {
 
       AssignmentPattern({ node }) {
         if (skipStrip) return;
-        // @ts-expect-error optional is not in ObjectPattern
+        // @ts-expect-error optional is not in TSAsExpression
         if (node.left.optional) {
-          // @ts-expect-error optional is not in ObjectPattern
+          // @ts-expect-error optional is not in TSAsExpression
           node.left.optional = false;
         }
       },
@@ -155,12 +155,13 @@ export default declare((api, opts: Options) => {
         for (let i = 0; i < node.params.length; i++) {
           let param = node.params[i];
           if (param.type === "AssignmentPattern") {
-            // @ts-expect-error
+            // @ts-expect-error: refine AST types, the left of an assignment pattern as a binding
+            // must not be a MemberExpression
             param = param.left;
           }
-          // @ts-expect-error optional is not in ObjectPattern
+          // @ts-expect-error optional is not in TSAsExpression
           if (param.optional) {
-            // @ts-expect-error optional is not in ObjectPattern
+            // @ts-expect-error optional is not in TSAsExpression
             param.optional = false;
           }
         }

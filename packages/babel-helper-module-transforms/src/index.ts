@@ -35,6 +35,19 @@ import type {
 } from "./normalize-and-load-metadata";
 import type { NodePath } from "@babel/traverse";
 
+export { buildDynamicImport } from "./dynamic-import";
+
+if (!process.env.BABEL_8_BREAKING) {
+  if (!USE_ESM) {
+    if (!IS_STANDALONE) {
+      // eslint-disable-next-line no-restricted-globals
+      exports.getDynamicImportSource =
+        // eslint-disable-next-line no-restricted-globals
+        require("./dynamic-import").getDynamicImportSource;
+    }
+  }
+}
+
 export { default as getModuleName } from "./get-module-name";
 export type { PluginOptions } from "./get-module-name";
 
@@ -65,9 +78,6 @@ export interface RewriteModuleStatementsAndPrepareHeaderOptions {
 export function rewriteModuleStatementsAndPrepareHeader(
   path: NodePath<t.Program>,
   {
-    // TODO(Babel 8): Remove this
-    loose,
-
     exportName,
     strict,
     allowTopLevelThis,
@@ -78,8 +88,12 @@ export function rewriteModuleStatementsAndPrepareHeader(
     esNamespaceOnly,
     filename,
 
-    constantReexports = loose,
-    enumerableModuleMeta = loose,
+    constantReexports = process.env.BABEL_8_BREAKING
+      ? undefined
+      : arguments[1].loose,
+    enumerableModuleMeta = process.env.BABEL_8_BREAKING
+      ? undefined
+      : arguments[1].loose,
     noIncompleteNsImportDetection,
   }: RewriteModuleStatementsAndPrepareHeaderOptions,
 ) {
@@ -260,11 +274,11 @@ const ReexportTemplate = {
     `,
 };
 
-const buildReexportsFromMeta = (
+function buildReexportsFromMeta(
   meta: ModuleMetadata,
   metadata: SourceModuleMetadata,
   constantReexports: boolean,
-) => {
+) {
   const namespace = metadata.lazy
     ? callExpression(identifier(metadata.name), [])
     : identifier(metadata.name);
@@ -301,7 +315,7 @@ const buildReexportsFromMeta = (
       return ReexportTemplate.spec(astNodes);
     }
   });
-};
+}
 
 /**
  * Build an "__esModule" header statement setting the property on a given object.
@@ -347,7 +361,7 @@ function buildNamespaceReexport(
         // namespace re-exports that would cause a binding to be exported
         // multiple times. However, multiple bindings of the same name that
         // export the same primitive value are silently skipped
-        // (the spec requires an "ambigous bindings" early error here).
+        // (the spec requires an "ambiguous bindings" early error here).
         template.statement`
         Object.keys(NAMESPACE).forEach(function(key) {
           if (key === "default" || key === "__esModule") return;

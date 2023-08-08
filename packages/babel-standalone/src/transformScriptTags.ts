@@ -8,7 +8,7 @@
 
 const scriptTypes = ["text/jsx", "text/babel"];
 
-import { transform } from "./index";
+import type { transform } from "./index";
 import type { InputOptions } from "@babel/core";
 
 let headEl: HTMLHeadElement;
@@ -77,8 +77,8 @@ function buildBabelOptions(script: CompilationResult, filename: string) {
     filename,
     presets,
     plugins: script.plugins || [
-      "proposal-class-properties",
-      "proposal-object-rest-spread",
+      "transform-class-properties",
+      "transform-object-rest-spread",
       "transform-flow-strip-types",
     ],
     sourceMaps: "inline" as const,
@@ -125,7 +125,7 @@ function load(
       }
     }
   };
-  return xhr.send(null);
+  xhr.send(null);
 }
 
 /**

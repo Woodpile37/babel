@@ -4,6 +4,8 @@ import * as t from "@babel/types";
 import _traverse from "../lib/index.js";
 const traverse = _traverse.default || _traverse;
 
+import { callFromAtBabelPackage } from "./helpers/@babel/fake-babel-package/index.js";
+
 describe("traverse", function () {
   const code = `
     var foo = "bar";
@@ -335,6 +337,62 @@ describe("traverse", function () {
 
       expect(visitedCounter).toBe(1);
       expect(programShouldStop).toBe(false);
+    });
+  });
+  describe("traverse.explode", () => {
+    describe("deprecated types and aliases", () => {
+      beforeAll(() => {
+        jest.spyOn(console, "warn").mockImplementation(() => {});
+      });
+      afterEach(() => {
+        console.warn.mockClear();
+      });
+      afterAll(() => {
+        console.warn.mockRestore();
+      });
+      it("should warn for deprecated node types", function testFn1() {
+        const visitNumericLiteral = () => {};
+        const visitor = {
+          NumberLiteral: visitNumericLiteral,
+        };
+        traverse.explode(visitor);
+        expect(console.warn).toHaveBeenCalledWith(
+          expect.stringMatching(
+            /Visitor `NumberLiteral` has been deprecated, please migrate to `NumericLiteral`[^]+at.+testFn1/,
+          ),
+        );
+        expect(visitor).toHaveProperty("NumericLiteral.enter", [
+          visitNumericLiteral,
+        ]);
+      });
+
+      it("should warn for deprecated aliases", function testFn2() {
+        const visitImportOrExportDeclaration = () => {};
+        const visitor = {
+          ModuleDeclaration: visitImportOrExportDeclaration,
+        };
+        traverse.explode(visitor);
+        expect(console.warn).toHaveBeenCalledWith(
+          expect.stringMatching(
+            /Visitor `ModuleDeclaration` has been deprecated, please migrate to `ImportOrExportDeclaration`[^]+at.+testFn2/,
+          ),
+        );
+        expect(visitor).toHaveProperty("ImportDeclaration.enter", [
+          visitImportOrExportDeclaration,
+        ]);
+      });
+
+      it("should not warn deprecations if usage comes from a @babel/* package", () => {
+        const visitImportOrExportDeclaration = () => {};
+        const visitor = {
+          ModuleDeclaration: visitImportOrExportDeclaration,
+        };
+        callFromAtBabelPackage(traverse.explode, visitor);
+        expect(console.warn).not.toHaveBeenCalled();
+        expect(visitor).toHaveProperty("ImportDeclaration.enter", [
+          visitImportOrExportDeclaration,
+        ]);
+      });
     });
   });
 });
