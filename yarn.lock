@@ -387,6 +387,20 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@babel/eslint-parser@npm:7.11.0":
+  version: 7.11.0
+  resolution: "@babel/eslint-parser@npm:7.11.0"
+  dependencies:
+    eslint-scope: 5.1.0
+    eslint-visitor-keys: ^1.3.0
+    semver: ^6.3.0
+  peerDependencies:
+    "@babel/core": ">=7.11.0"
+    eslint: ">=7.5.0"
+  checksum: a169cf198cd806e50dabb0a5dd9e8a5872e84e88b1b80517054ea6df597a466ba8677cabb01e34948e6d738cf0aec95cde23df3f34acde61712f23e1eb0a1297
+  languageName: node
+  linkType: hard
+
 "@babel/eslint-parser@workspace:^, @babel/eslint-parser@workspace:eslint/babel-eslint-parser":
   version: 0.0.0-use.local
   resolution: "@babel/eslint-parser@workspace:eslint/babel-eslint-parser"
@@ -6248,7 +6262,7 @@ __metadata:
     "@babel/cli": ^7.21.5
     "@babel/core": ^7.22.1
     "@babel/eslint-config-internal": "workspace:^"
-    "@babel/eslint-parser": "workspace:^"
+    "@babel/eslint-parser": 7.11.0
     "@babel/eslint-plugin-development": "workspace:^"
     "@babel/eslint-plugin-development-internal": "workspace:^"
     "@babel/plugin-transform-dynamic-import": ^7.22.1
@@ -6297,8 +6311,7 @@ __metadata:
     rollup-plugin-dts: ^5.3.0
     rollup-plugin-polyfill-node: ^0.12.0
     rollup-plugin-terser: ^7.0.2
-    semver: ^6.3.0
-    shelljs: ^0.8.5
+    semver: ^7.5.2
     test262-stream: ^1.4.0
     through2: ^4.0.0
     typescript: ^5.0.2
@@ -8346,6 +8359,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"eslint-scope@npm:5.1.0":
+  version: 5.1.0
+  resolution: "eslint-scope@npm:5.1.0"
+  dependencies:
+    esrecurse: ^4.1.0
+    estraverse: ^4.1.1
+  checksum: 701c850429cc26105c8d2324c65b269aed45f33a6ad2f43c3d0d47c8d51ec242800e448a7a591cc6162b75cfcb456f0a63f20dd76887bac332617d4847194057
+  languageName: node
+  linkType: hard
+
 "eslint-scope@npm:5.1.1, eslint-scope@npm:^5.1.1":
   version: 5.1.1
   resolution: "eslint-scope@npm:5.1.1"
@@ -8410,7 +8433,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint-visitor-keys@npm:^1.1.0":
+"eslint-visitor-keys@npm:^1.1.0, eslint-visitor-keys@npm:^1.3.0":
   version: 1.3.0
   resolution: "eslint-visitor-keys@npm:1.3.0"
   checksum: 37a19b712f42f4c9027e8ba98c2b06031c17e0c0a4c696cd429bd9ee04eb43889c446f2cd545e1ff51bef9593fcec94ecd2c2ef89129fcbbf3adadbef520376a
@@ -9432,7 +9455,7 @@ fsevents@^1.2.7:
   languageName: node
   linkType: hard
 
-"glob@npm:^7.0.0, glob@npm:^7.1.0, glob@npm:^7.1.1, glob@npm:^7.1.3, glob@npm:^7.1.4, glob@npm:^7.2.0":
+"glob@npm:^7.1.0, glob@npm:^7.1.1, glob@npm:^7.1.3, glob@npm:^7.1.4, glob@npm:^7.2.0":
   version: 7.2.3
   resolution: "glob@npm:7.2.3"
   dependencies:
@@ -14120,6 +14143,17 @@ fsevents@^1.2.7:
   languageName: node
   linkType: hard
 
+"semver@npm:^7.5.2":
+  version: 7.5.4
+  resolution: "semver@npm:7.5.4"
+  dependencies:
+    lru-cache: ^6.0.0
+  bin:
+    semver: bin/semver.js
+  checksum: 12d8ad952fa353b0995bf180cdac205a4068b759a140e5d3c608317098b3575ac2f1e09182206bf2eb26120e1c0ed8fb92c48c592f6099680de56bb071423ca3
+  languageName: node
+  linkType: hard
+
 "serialize-javascript@npm:^4.0.0":
   version: 4.0.0
   resolution: "serialize-javascript@npm:4.0.0"
@@ -14237,22 +14271,9 @@ fsevents@^1.2.7:
   linkType: hard
 
 "shell-quote@npm:^1.6.1":
-  version: 1.7.2
-  resolution: "shell-quote@npm:1.7.2"
-  checksum: efad426fb25d8a54d06363f1f45774aa9e195f62f14fa696d542b44bfe418ab41206448b63af18d726c62e099e66d9a3f4f44858b9ea2ce4b794b41b802672d1
-  languageName: node
-  linkType: hard
-
-"shelljs@npm:^0.8.5":
-  version: 0.8.5
-  resolution: "shelljs@npm:0.8.5"
-  dependencies:
-    glob: ^7.0.0
-    interpret: ^1.0.0
-    rechoir: ^0.6.2
-  bin:
-    shjs: bin/shjs
-  checksum: 7babc46f732a98f4c054ec1f048b55b9149b98aa2da32f6cf9844c434b43c6251efebd6eec120937bd0999e13811ebd45efe17410edb3ca938f82f9381302748
+  version: 1.8.1
+  resolution: "shell-quote@npm:1.8.1"
+  checksum: 5f01201f4ef504d4c6a9d0d283fa17075f6770bfbe4c5850b074974c68062f37929ca61700d95ad2ac8822e14e8c4b990ca0e6e9272e64befd74ce5e19f0736b
   languageName: node
   linkType: hard
 
