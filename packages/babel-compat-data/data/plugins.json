@@ -2,15 +2,20 @@
   "transform-unicode-sets-regex": {
     "chrome": "112",
     "opera": "98",
-    "edge": "112"
+    "edge": "112",
+    "firefox": "116",
+    "node": "20",
+    "deno": "1.32"
   },
   "transform-class-static-block": {
     "chrome": "94",
     "opera": "80",
     "edge": "94",
     "firefox": "93",
+    "safari": "16.4",
     "node": "16.11",
     "deno": "1.14",
+    "ios": "16.4",
     "samsung": "17",
     "electron": "15.0"
   },
@@ -19,8 +24,10 @@
     "opera": "80",
     "edge": "94",
     "firefox": "93",
+    "safari": "16.4",
     "node": "16.11",
     "deno": "1.14",
+    "ios": "16.4",
     "samsung": "17",
     "electron": "15.0"
   },
@@ -249,8 +256,10 @@
     "opera": "36",
     "edge": "18",
     "firefox": "53",
+    "safari": "16.3",
     "node": "6",
     "deno": "1",
+    "ios": "16.3",
     "samsung": "5",
     "electron": "0.37"
   },
